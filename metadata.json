@@ -1,0 +1,6 @@
+{
+  "name": "Virtual DJ Rivera",
+  "description": "Virtual DJ mixing suite featuring dual deck crossfader, Firestore live table song requests, and emotional text-to-speech voiceovers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
