@@ -132,6 +132,37 @@ class EmotionalTtsManager(
         currentTts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
     }
 
+    fun speakWithVoiceType(text: String, tipoLector: TipoLector) {
+        if (!isInitialized || text.isBlank()) return
+        val currentTts = tts ?: return
+
+        try {
+            val voices = currentTts.voices
+            if (voices != null && voices.isNotEmpty()) {
+                val matchingVoice = voices.find { voice ->
+                    val name = voice.name.lowercase()
+                    val localeMatches = voice.locale.language == "es"
+                    val genderMatches = if (tipoLector.isFemale) {
+                        name.contains("female") || name.contains("fem") || name.contains("mujer")
+                    } else {
+                        name.contains("male") || name.contains("hombre")
+                    }
+                    localeMatches && genderMatches
+                } ?: voices.find { it.locale.language == "es" }
+
+                matchingVoice?.let { currentTts.voice = it }
+            }
+        } catch (_: Exception) {}
+
+        currentTts.setPitch(tipoLector.pitch)
+        currentTts.setSpeechRate(tipoLector.rate)
+
+        _lastSpoken.value = text
+        val utteranceId = UUID.randomUUID().toString()
+        val params = Bundle()
+        currentTts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+    }
+
     fun stop() {
         tts?.stop()
         _isSpeaking.value = false

@@ -14,13 +14,23 @@ enum class AdsIntervalMode(val label: String) {
     POR_CANCIONES("Por Cantidad de Canciones")
 }
 
+enum class TipoLector(val label: String, val pitch: Float, val rate: Float, val isFemale: Boolean = false) {
+    LOCUTOR_RADIO("🎙️ Locutor Radio DJ (Cálido y Enérgico)", 1.02f, 1.05f, false),
+    LOCUTORA_COMERCIAL("👩 Locutora Comercial (Suave y Natural)", 1.15f, 0.98f, true),
+    VOZ_PROFUNDA_CLUB("🎧 Voz Profunda Club (Grave e Impacto)", 0.82f, 0.95f, false),
+    ANIMADOR_FIESTA("🔥 Animador de Fiesta (Dinámico)", 1.10f, 1.15f, false),
+    INSTITUCIONAL_HOTEL("👔 Institucional Rivera (Pausado y Fino)", 0.96f, 0.92f, false)
+}
+
 data class AnuncioItem(
     val id: String,
     val nombre: String,
     val duracionSeg: Int,
     val frecuencia: String,
     val activo: Boolean,
-    val uri: String = ""
+    val uri: String = "",
+    val textoLocucion: String = "",
+    val tipoLector: TipoLector = TipoLector.LOCUTOR_RADIO
 )
 
 enum class MicEffect(val label: String) {

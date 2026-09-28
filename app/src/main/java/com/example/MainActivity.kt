@@ -22,15 +22,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        try {
+            startService(android.content.Intent(this, UsbMidiService::class.java))
+        } catch (_: Exception) {}
+
         setContent {
             MyApplicationTheme {
                 val viewModel: DjConsoleViewModel = viewModel()
 
-                val permissionLauncher = rememberLauncherForActivityResult(
+                val audioPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
-                ) { isGranted ->
-                    // Device audio scan capability
-                }
+                ) { /* granted */ }
 
                 LaunchedEffect(Unit) {
                     val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -42,7 +44,13 @@ class MainActivity : ComponentActivity() {
                     if (ContextCompat.checkSelfPermission(this@MainActivity, permission)
                         != PackageManager.PERMISSION_GRANTED
                     ) {
-                        permissionLauncher.launch(permission)
+                        audioPermissionLauncher.launch(permission)
+                    }
+
+                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 }
 

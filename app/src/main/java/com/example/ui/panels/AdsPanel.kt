@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.example.AdsIntervalMode
 import com.example.AnuncioItem
 import com.example.DjConsoleState
+import com.example.TipoLector
 import com.example.ui.components.DjAmber
 import com.example.ui.components.DjBorder
 import com.example.ui.components.DjCardDark
@@ -83,9 +85,20 @@ fun AdsPanel(
     onClosingTimeChange: (String) -> Unit,
     onClosingFarewellChange: (Boolean) -> Unit,
     onClosingBlockQrChange: (Boolean) -> Unit,
+    onSaveAd: ((id: String?, nombre: String, duracion: Int, frecuencia: String, textoLocucion: String, tipoLector: TipoLector) -> Unit)? = null,
+    onDeleteAd: ((id: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var modeDropdownExpanded by remember { mutableStateOf(false) }
+
+    var isModalOpen by remember { mutableStateOf(false) }
+    var editingAdId by remember { mutableStateOf<String?>(null) }
+    var formNombre by remember { mutableStateOf("") }
+    var formTextoLocucion by remember { mutableStateOf("") }
+    var formTipoLector by remember { mutableStateOf(TipoLector.LOCUTOR_RADIO) }
+    var formDuracion by remember { mutableStateOf("15") }
+    var formFrecuencia by remember { mutableStateOf("Cada 30m") }
+    var formTipoTts by remember { mutableStateOf(true) }
 
     Card(
         modifier = modifier
@@ -367,7 +380,16 @@ fun AdsPanel(
                             )
                             // Botón [+ AGREGAR ANUNCIO]
                             Button(
-                                onClick = onAddAd,
+                                onClick = {
+                                    editingAdId = null
+                                    formNombre = ""
+                                    formTextoLocucion = ""
+                                    formTipoLector = TipoLector.LOCUTOR_RADIO
+                                    formDuracion = "15"
+                                    formFrecuencia = "Cada 30m"
+                                    formTipoTts = true
+                                    isModalOpen = true
+                                },
                                 modifier = Modifier.height(26.dp).testTag("add_ad_button"),
                                 shape = RoundedCornerShape(6.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = DjCyan),
@@ -426,16 +448,69 @@ fun AdsPanel(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        if (item.textoLocucion.isNotBlank()) {
+                                            Text(
+                                                text = "\"${item.textoLocucion}\"",
+                                                color = DjCyan.copy(alpha = 0.85f),
+                                                fontSize = 9.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                         Text(
-                                            text = "${item.duracionSeg}s • Frec: ${item.frecuencia}",
+                                            text = "${item.duracionSeg}s • Frec: ${item.frecuencia} • ${item.tipoLector.label}",
                                             color = DjTextMuted,
-                                            fontSize = 9.sp,
+                                            fontSize = 8.sp,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
 
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        // Botón Editar (Lápiz)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFF1E2433))
+                                                .clickable {
+                                                    editingAdId = item.id
+                                                    formNombre = item.nombre
+                                                    formTextoLocucion = item.textoLocucion
+                                                    formTipoLector = item.tipoLector
+                                                    formDuracion = item.duracionSeg.toString()
+                                                    formFrecuencia = item.frecuencia
+                                                    isModalOpen = true
+                                                }
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "✏️",
+                                                fontSize = 9.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        // Botón Eliminar (Basura)
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFF2E1C1C))
+                                                .clickable { onDeleteAd?.invoke(item.id) }
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "🗑️",
+                                                fontSize = 9.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        // Switch Activo / Pausa
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(4.dp))
@@ -598,6 +673,175 @@ fun AdsPanel(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Ventana Modal de Agregar / Editar Anuncio
+    if (isModalOpen) {
+        Dialog(onDismissRequest = { isModalOpen = false }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = DjPanelDark),
+                border = androidx.compose.foundation.BorderStroke(2.dp, DjCyan)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = if (editingAdId != null) "✏️ EDITAR ANUNCIO PUBLICITARIO" else "+ AGREGAR NUEVO ANUNCIO",
+                        color = DjCyan,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = formNombre,
+                        onValueChange = { formNombre = it },
+                        label = { Text("Título / Nombre del Anuncio", color = DjTextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = DjCyan,
+                            unfocusedBorderColor = DjBorder
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = formTextoLocucion,
+                        onValueChange = { formTextoLocucion = it },
+                        label = { Text("Texto Exacto a Leer por el Locutor (Sin Prefijos)", color = DjAmber, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        placeholder = { Text("Escribe aquí el texto exacto que el locutor pronunciará...", color = Color.Gray, fontSize = 9.sp) },
+                        minLines = 2,
+                        maxLines = 3,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = DjAmber,
+                            unfocusedBorderColor = DjBorder
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "TIPO DE LECTOR / PERFIL DE VOZ (CERO ROBÓTICO):",
+                        color = DjCyan,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        for (lector in TipoLector.entries) {
+                            val isSelected = formTipoLector == lector
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) DjCyan.copy(alpha = 0.2f) else Color(0xFF151821))
+                                    .border(1.dp, if (isSelected) DjCyan else DjBorder, RoundedCornerShape(6.dp))
+                                    .clickable { formTipoLector = lector }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = lector.label,
+                                    color = if (isSelected) Color.White else Color.LightGray,
+                                    fontSize = 9.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (isSelected) {
+                                    Text("✓", color = DjCyan, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = formDuracion,
+                            onValueChange = { formDuracion = it },
+                            label = { Text("Duración (s)", color = DjTextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = DjCyan,
+                                unfocusedBorderColor = DjBorder
+                            )
+                        )
+                        OutlinedTextField(
+                            value = formFrecuencia,
+                            onValueChange = { formFrecuencia = it },
+                            label = { Text("Frecuencia", color = DjTextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = DjCyan,
+                                unfocusedBorderColor = DjBorder
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { formTipoTts = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (formTipoTts) DjCyan else Color(0xFF222632)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Sintetizador TTS", color = if (formTipoTts) Color.Black else Color.White, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Button(
+                            onClick = { formTipoTts = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (!formTipoTts) DjAmber else Color(0xFF222632)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Audio Local (.mp3)", color = if (!formTipoTts) Color.Black else Color.White, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Button(
+                            onClick = { isModalOpen = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A2E3D))
+                        ) {
+                            Text("CANCELAR", color = Color.White, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (formNombre.isNotBlank()) {
+                                    val dur = formDuracion.toIntOrNull() ?: 15
+                                    val textLoc = if (formTextoLocucion.isNotBlank()) formTextoLocucion.trim() else formNombre.trim()
+                                    onSaveAd?.invoke(editingAdId, formNombre, dur, formFrecuencia, textLoc, formTipoLector)
+                                    isModalOpen = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = DjGreen)
+                        ) {
+                            Text("GUARDAR", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }

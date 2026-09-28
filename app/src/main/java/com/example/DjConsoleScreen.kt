@@ -176,7 +176,11 @@ fun DjConsoleScreen(
                                 onDuckingLevelChange = { viewModel.setAdsDuckingLevel(it) },
                                 onClosingTimeChange = { viewModel.setClosingTime(it) },
                                 onClosingFarewellChange = { viewModel.setClosingFarewell(it) },
-                                onClosingBlockQrChange = { viewModel.setClosingBlockQr(it) }
+                                onClosingBlockQrChange = { viewModel.setClosingBlockQr(it) },
+                                onSaveAd = { id, nombre, duracion, frecuencia, textoLocucion, tipoLector ->
+                                    viewModel.saveOrUpdateAd(id, nombre, duracion, frecuencia, true, textoLocucion, tipoLector)
+                                },
+                                onDeleteAd = { viewModel.deleteAd(it) }
                             )
                         }
                         RackTab.PETICIONES_QR -> {

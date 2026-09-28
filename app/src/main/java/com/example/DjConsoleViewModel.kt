@@ -47,6 +47,24 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         loadBuiltInTracks()
         startConsoleMonitoringLoop()
         startFirestoreSync()
+        startUsbMidiListener()
+    }
+
+    private fun startUsbMidiListener() {
+        viewModelScope.launch {
+            UsbMidiService.events.collect { event ->
+                when (event) {
+                    is MidiControlEvent.Crossfader -> setCrossfader(event.value)
+                    is MidiControlEvent.FaderA -> setDeckFader(DeckId.DECK_A, event.value)
+                    is MidiControlEvent.FaderB -> setDeckFader(DeckId.DECK_B, event.value)
+                    is MidiControlEvent.PlayDeck -> {
+                        val isPlaying = if (event.deckId == DeckId.DECK_A) _state.value.deckA.isPlaying else _state.value.deckB.isPlaying
+                        if (isPlaying) pauseDeck(event.deckId) else playDeck(event.deckId)
+                    }
+                    is MidiControlEvent.CueDeck -> toggleDeckCue(event.deckId)
+                }
+            }
+        }
     }
 
     private fun initializeDefaultPads() {
@@ -69,10 +87,42 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun initializeDefaultAds() {
         val initialAds = listOf(
-            AnuncioItem("ad_1", "Cuña Rivera Hotel & Lounge", 15, "Cada 30m", activo = true),
-            AnuncioItem("ad_2", "Promo Barra Libre 2x1 Cócteles", 12, "Cada 45m", activo = true),
-            AnuncioItem("ad_3", "Aviso Estacionamiento & Guardarropa", 10, "Cada 60m", activo = false),
-            AnuncioItem("ad_4", "Despedida y Cierre Seguro", 20, "Al Cierre", activo = true)
+            AnuncioItem(
+                id = "ad_1",
+                nombre = "Cuña Rivera Hotel & Lounge",
+                duracionSeg = 15,
+                frecuencia = "Cada 30m",
+                activo = true,
+                textoLocucion = "Bienvenidos a Rivera Hotel and Lounge. Disfruta de la mejor música y coctelería de autor.",
+                tipoLector = TipoLector.INSTITUCIONAL_HOTEL
+            ),
+            AnuncioItem(
+                id = "ad_2",
+                nombre = "Promo Barra Libre 2x1 Cócteles",
+                duracionSeg = 12,
+                frecuencia = "Cada 45m",
+                activo = true,
+                textoLocucion = "Atención a todas las mesas: dos por uno en cócteles seleccionados en la barra principal.",
+                tipoLector = TipoLector.LOCUTORA_COMERCIAL
+            ),
+            AnuncioItem(
+                id = "ad_3",
+                nombre = "Aviso Estacionamiento & Guardarropa",
+                duracionSeg = 10,
+                frecuencia = "Cada 60m",
+                activo = false,
+                textoLocucion = "El servicio de estacionamiento y guardarropa se encuentra a su entera disposición.",
+                tipoLector = TipoLector.LOCUTOR_RADIO
+            ),
+            AnuncioItem(
+                id = "ad_4",
+                nombre = "Despedida y Cierre Seguro",
+                duracionSeg = 20,
+                frecuencia = "Al Cierre",
+                activo = true,
+                textoLocucion = "Agradecemos su grata presencia esta noche. Recuerden conducir con precaución. Hasta pronto.",
+                tipoLector = TipoLector.VOZ_PROFUNDA_CLUB
+            )
         )
         _state.update {
             it.copy(
@@ -398,25 +448,65 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(isPlayingAd = true) }
         updateDuckingState(true, _state.value.adsDuckingLevel)
 
-        val announcement = "Mensaje publicitario en DJ Rivera: ${selectedAd.nombre}."
-        ttsManager.speak(announcement, EmocionVoz.EMOCIONADO)
+        // SOLO lee el texto exacto escrito en la caja de texto (sin prefijos sintéticos)
+        val textToSpeak = selectedAd.textoLocucion.ifBlank { selectedAd.nombre }
+        ttsManager.speakWithVoiceType(textToSpeak, selectedAd.tipoLector)
 
         viewModelScope.launch {
-            delay(selectedAd.duracionSeg * 1000L.coerceAtLeast(4000L))
+            delay(selectedAd.duracionSeg * 1000L.coerceAtLeast(3500L))
             _state.update { it.copy(isPlayingAd = false) }
             updateDuckingState(false, 1.0f)
         }
     }
 
     fun addNewAd(nombre: String = "Nueva Cuña Patrocinador", duracionSeg: Int = 15) {
-        val newAd = AnuncioItem(
-            id = "ad_${System.currentTimeMillis()}",
-            nombre = nombre,
-            duracionSeg = duracionSeg,
-            frecuencia = "Cada 30m",
-            activo = true
-        )
-        _state.update { it.copy(adsLibrary = it.adsLibrary + newAd, selectedAnuncioId = newAd.id) }
+        saveOrUpdateAd(null, nombre, duracionSeg, "Cada 30m", true, "", TipoLector.LOCUTOR_RADIO)
+    }
+
+    fun saveOrUpdateAd(
+        id: String?,
+        nombre: String,
+        duracionSeg: Int,
+        frecuencia: String,
+        activo: Boolean = true,
+        textoLocucion: String = "",
+        tipoLector: TipoLector = TipoLector.LOCUTOR_RADIO
+    ) {
+        _state.update { current ->
+            if (id != null && current.adsLibrary.any { it.id == id }) {
+                val updated = current.adsLibrary.map {
+                    if (it.id == id) it.copy(
+                        nombre = nombre,
+                        duracionSeg = duracionSeg,
+                        frecuencia = frecuencia,
+                        activo = activo,
+                        textoLocucion = textoLocucion,
+                        tipoLector = tipoLector
+                    )
+                    else it
+                }
+                current.copy(adsLibrary = updated)
+            } else {
+                val newAd = AnuncioItem(
+                    id = "ad_${System.currentTimeMillis()}",
+                    nombre = nombre,
+                    duracionSeg = duracionSeg,
+                    frecuencia = frecuencia,
+                    activo = activo,
+                    textoLocucion = textoLocucion,
+                    tipoLector = tipoLector
+                )
+                current.copy(adsLibrary = current.adsLibrary + newAd, selectedAnuncioId = newAd.id)
+            }
+        }
+    }
+
+    fun deleteAd(id: String) {
+        _state.update { current ->
+            val updated = current.adsLibrary.filterNot { it.id == id }
+            val nextSelected = if (current.selectedAnuncioId == id) updated.firstOrNull()?.id else current.selectedAnuncioId
+            current.copy(adsLibrary = updated, selectedAnuncioId = nextSelected)
+        }
     }
 
     // 2. QR Requests Panel Functions
