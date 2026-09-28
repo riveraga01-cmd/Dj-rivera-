@@ -835,7 +835,11 @@ fun AdsPanel(
                                 if (formNombre.isNotBlank()) {
                                     val dur = formDuracion.toIntOrNull() ?: 15
                                     val textLoc = if (formTextoLocucion.isNotBlank()) formTextoLocucion.trim() else formNombre.trim()
-                                    onSaveAd?.invoke(editingAdId, formNombre, dur, formFrecuencia, textLoc, formTipoLector)
+                                    if (onSaveAd != null) {
+                                        onSaveAd.invoke(editingAdId, formNombre, dur, formFrecuencia, textLoc, formTipoLector)
+                                    } else {
+                                        onAddAd()
+                                    }
                                     isModalOpen = false
                                 }
                             },

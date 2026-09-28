@@ -27,15 +27,35 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
+      - name: Restaurar debug.keystore
+        run: |
+          if [ -f "debug.keystore.base64" ] && [ -s "debug.keystore.base64" ]; then
+            echo "Decodificando debug.keystore desde debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore || base64 --decode debug.keystore.base64 > debug.keystore || true
+          fi
+          if [ ! -s "debug.keystore" ]; then
+            echo "Generando debug.keystore de respaldo para firma..."
+            rm -f debug.keystore
+            keytool -genkeypair -noprompt -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Aceptar licencias de Android SDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || yes | sdkmanager --licenses 2>/dev/null || true
+
       - name: Dar permisos de ejecución a Gradle
-        run: chmod +x gradlew || true
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper || true
+          fi
+          chmod +x gradlew || true
 
       - name: Compilar APK Debug de Android
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew :app:assembleDebug --stacktrace
+            ./gradlew :app:assembleDebug --no-daemon --stacktrace
           else
-            gradle :app:assembleDebug --stacktrace
+            gradle :app:assembleDebug --no-daemon --stacktrace
           fi
 
       - name: Subir APK a Artifacts de GitHub
@@ -63,8 +83,24 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
+      - name: Restaurar debug.keystore
+        run: |
+          if [ -f "debug.keystore.base64" ] && [ -s "debug.keystore.base64" ]; then
+            echo "Decodificando debug.keystore desde debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore || base64 --decode debug.keystore.base64 > debug.keystore || true
+          fi
+          if [ ! -s "debug.keystore" ]; then
+            echo "Generando debug.keystore de respaldo para firma..."
+            rm -f debug.keystore
+            keytool -genkeypair -noprompt -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Dar permisos de ejecución a Gradle
-        run: chmod +x gradlew || true
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper || true
+          fi
+          chmod +x gradlew || true
 
       - name: Empaquetar aplicación para PC / Desktop
         run: |
