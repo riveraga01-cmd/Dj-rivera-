@@ -7,8 +7,12 @@ import android.media.AudioTrack
 import android.media.audiofx.Equalizer
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -49,19 +53,80 @@ enum class DjPadEffect {
     ECHO
 }
 
+data class VoicePresetConfig(
+    val presetName: String,
+    val targetCountry: String?,
+    val isFemale: Boolean,
+    val basePitch: Float,
+    val baseRate: Float,
+    val keywords: List<String>
+)
+
 class EmotionalTtsManager(
     private val context: Context,
     private val onDuckingChanged: (Boolean) -> Unit
 ) : TextToSpeech.OnInitListener {
 
+    private val tag = "EmotionalTtsManager"
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var tts: TextToSpeech? = null
-    private var isInitialized = false
+    var isInitialized = false
+        private set
 
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
     private val _lastSpoken = MutableStateFlow("")
     val lastSpoken: StateFlow<String> = _lastSpoken.asStateFlow()
+
+    private val _availableVoices = MutableStateFlow<List<Voice>>(emptyList())
+    val availableVoices: StateFlow<List<Voice>> = _availableVoices.asStateFlow()
+
+    private var isLiveUtterance: Boolean = true
+    private var currentOnStartCallback: (() -> Unit)? = null
+    private var currentOnFinishCallback: (() -> Unit)? = null
+
+    var currentSpeechRate: Float = 1.0f
+        private set
+    var currentPitch: Float = 1.0f
+        private set
+
+    companion object {
+        val PRESETS = listOf(
+            VoicePresetConfig(
+                presetName = "Español Latino (Locutor Profesional)",
+                targetCountry = "US",
+                isFemale = false,
+                basePitch = 0.95f,
+                baseRate = 1.00f,
+                keywords = listOf("es-us", "es-419", "es-mx", "male", "hombre", "spa-usa")
+            ),
+            VoicePresetConfig(
+                presetName = "Español Latino (Femenino Enérgico)",
+                targetCountry = "US",
+                isFemale = true,
+                basePitch = 1.28f,
+                baseRate = 1.12f,
+                keywords = listOf("female", "fem", "mujer", "femenino", "#female")
+            ),
+            VoicePresetConfig(
+                presetName = "Español España (DJ Nightclub)",
+                targetCountry = "ES",
+                isFemale = false,
+                basePitch = 0.85f,
+                baseRate = 1.05f,
+                keywords = listOf("es-es", "castellano", "spain", "spa-esp")
+            ),
+            VoicePresetConfig(
+                presetName = "Voz Modulada Neón (Deep Bass)",
+                targetCountry = null,
+                isFemale = false,
+                basePitch = 0.65f,
+                baseRate = 0.92f,
+                keywords = listOf("deep", "bass", "low", "male")
+            )
+        )
+    }
 
     init {
         tts = TextToSpeech(context.applicationContext, this)
@@ -75,38 +140,188 @@ class EmotionalTtsManager(
             }
             isInitialized = true
             setupUtteranceListener()
+            queryAvailableVoices()
+        }
+    }
+
+    private fun queryAvailableVoices() {
+        try {
+            val voices = tts?.voices
+            if (voices != null) {
+                _availableVoices.value = voices.toList()
+                Log.d(tag, "Detected ${voices.size} system TTS voices.")
+            }
+        } catch (e: Throwable) {
+            Log.w(tag, "Error querying system voices: ${e.message}")
         }
     }
 
     private fun setupUtteranceListener() {
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                _isSpeaking.value = true
-                onDuckingChanged(true)
+                mainHandler.post {
+                    _isSpeaking.value = true
+                    if (isLiveUtterance) {
+                        onDuckingChanged(true)
+                    }
+                    currentOnStartCallback?.invoke()
+                }
             }
 
             override fun onDone(utteranceId: String?) {
-                _isSpeaking.value = false
-                onDuckingChanged(false)
+                mainHandler.post {
+                    _isSpeaking.value = false
+                    if (isLiveUtterance) {
+                        onDuckingChanged(false)
+                    }
+                    currentOnFinishCallback?.invoke()
+                    currentOnStartCallback = null
+                    currentOnFinishCallback = null
+                }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                _isSpeaking.value = false
-                onDuckingChanged(false)
+                mainHandler.post {
+                    _isSpeaking.value = false
+                    if (isLiveUtterance) {
+                        onDuckingChanged(false)
+                    }
+                    currentOnFinishCallback?.invoke()
+                    currentOnStartCallback = null
+                    currentOnFinishCallback = null
+                }
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
-                _isSpeaking.value = false
-                onDuckingChanged(false)
+                mainHandler.post {
+                    _isSpeaking.value = false
+                    if (isLiveUtterance) {
+                        onDuckingChanged(false)
+                    }
+                    currentOnFinishCallback?.invoke()
+                    currentOnStartCallback = null
+                    currentOnFinishCallback = null
+                }
             }
         })
+    }
+
+    fun setSpeechRate(rate: Float) {
+        currentSpeechRate = rate.coerceIn(0.5f, 2.0f)
+        try {
+            tts?.setSpeechRate(currentSpeechRate)
+        } catch (_: Throwable) {}
+    }
+
+    fun setPitch(pitch: Float) {
+        currentPitch = pitch.coerceIn(0.5f, 2.0f)
+        try {
+            tts?.setPitch(currentPitch)
+        } catch (_: Throwable) {}
+    }
+
+    fun getPresetConfig(selectedName: String): VoicePresetConfig {
+        val lower = selectedName.lowercase()
+        return when {
+            lower.contains("femenin") || lower.contains("enérgico") || lower.contains("energico") -> PRESETS[1]
+            lower.contains("nightclub") || lower.contains("españa") || lower.contains("espana") -> PRESETS[2]
+            lower.contains("neón") || lower.contains("neon") || lower.contains("deep") || lower.contains("bass") -> PRESETS[3]
+            else -> PRESETS[0]
+        }
+    }
+
+    fun applyVoicePreset(selectedVoiceName: String): Voice? {
+        val currentTts = tts ?: return null
+        val preset = getPresetConfig(selectedVoiceName)
+        var matchedVoice: Voice? = null
+
+        try {
+            val voices = currentTts.voices
+            if (voices != null && voices.isNotEmpty()) {
+                val spanishVoices = voices.filter { v ->
+                    val notInstalled = v.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) == true
+                    !notInstalled && v.locale.language.equals("es", ignoreCase = true)
+                }
+
+                if (spanishVoices.isNotEmpty()) {
+                    matchedVoice = spanishVoices.find { v ->
+                        val name = v.name.lowercase()
+                        val country = v.locale.country.lowercase()
+                        val matchesKeyword = preset.keywords.any { k -> name.contains(k) }
+                        val matchesCountry = preset.targetCountry != null && country.equals(preset.targetCountry, ignoreCase = true)
+                        matchesKeyword || matchesCountry
+                    } ?: spanishVoices.firstOrNull()
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(tag, "Error matching system voice: ${e.message}")
+        }
+
+        if (matchedVoice != null) {
+            try {
+                currentTts.voice = matchedVoice
+                Log.d(tag, "Mapped preset '${preset.presetName}' to real voice: ${matchedVoice.name}")
+            } catch (_: Throwable) {}
+        } else {
+            // Apply language locale fallback
+            try {
+                if (preset.targetCountry != null) {
+                    currentTts.setLanguage(Locale("es", preset.targetCountry))
+                } else {
+                    currentTts.setLanguage(Locale("es"))
+                }
+            } catch (_: Throwable) {}
+        }
+
+        return matchedVoice
+    }
+
+    fun speakLocutorTts(
+        text: String,
+        selectedVoiceName: String,
+        sliderRate: Float,
+        sliderPitch: Float,
+        isLive: Boolean,
+        onStart: (() -> Unit)? = null,
+        onFinish: (() -> Unit)? = null
+    ) {
+        if (!isInitialized || text.isBlank()) {
+            onFinish?.invoke()
+            return
+        }
+        val currentTts = tts ?: return
+
+        isLiveUtterance = isLive
+        currentOnStartCallback = onStart
+        currentOnFinishCallback = onFinish
+
+        val preset = getPresetConfig(selectedVoiceName)
+        applyVoicePreset(selectedVoiceName)
+
+        // Combine user slider adjustments with the preset's distinctive acoustic characteristics
+        val finalRate = (sliderRate * preset.baseRate).coerceIn(0.5f, 2.0f)
+        val finalPitch = (sliderPitch * preset.basePitch).coerceIn(0.5f, 2.0f)
+
+        currentSpeechRate = finalRate
+        currentPitch = finalPitch
+
+        try {
+            currentTts.setSpeechRate(finalRate)
+            currentTts.setPitch(finalPitch)
+        } catch (_: Throwable) {}
+
+        _lastSpoken.value = text
+        val utteranceId = UUID.randomUUID().toString()
+        val params = Bundle()
+        currentTts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
     }
 
     fun speak(text: String, emocion: EmocionVoz) {
         if (!isInitialized || text.isBlank()) return
         val currentTts = tts ?: return
 
+        isLiveUtterance = true
         when (emocion) {
             EmocionVoz.ROMANTICO -> {
                 currentTts.setPitch(0.80f)
@@ -136,6 +351,7 @@ class EmotionalTtsManager(
         if (!isInitialized || text.isBlank()) return
         val currentTts = tts ?: return
 
+        isLiveUtterance = true
         try {
             val voices = currentTts.voices
             if (voices != null && voices.isNotEmpty()) {
@@ -164,15 +380,180 @@ class EmotionalTtsManager(
     }
 
     fun stop() {
-        tts?.stop()
-        _isSpeaking.value = false
-        onDuckingChanged(false)
+        try {
+            tts?.stop()
+        } catch (_: Throwable) {}
+        mainHandler.post {
+            _isSpeaking.value = false
+            if (isLiveUtterance) {
+                onDuckingChanged(false)
+            }
+            currentOnFinishCallback?.invoke()
+            currentOnStartCallback = null
+            currentOnFinishCallback = null
+        }
     }
 
     fun release() {
-        tts?.stop()
-        tts?.shutdown()
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Throwable) {}
         tts = null
+    }
+}
+
+/**
+ * 3-Band Equalizer manager wrapping android.media.audiofx.Equalizer
+ * attached directly to an audioSessionId.
+ *
+ * Frequency division:
+ * - LOW: < 250 Hz (Bajos)
+ * - MID: 500 Hz - 2 kHz (Medios, covers 250 Hz - 3.5 kHz)
+ * - HI: > 4 kHz (Agudos, covers >= 3.5 kHz)
+ *
+ * Value mapping:
+ * - 0.5f (center) -> 0 dB (0 millibels)
+ * - 0.0f (minimum) -> minLevelMb (minimum supported millibels, e.g. -1500 mB)
+ * - 1.0f (maximum) -> maxLevelMb (maximum supported millibels, e.g. +1500 mB)
+ */
+class DjThreeBandEqualizer(
+    val audioSessionId: Int,
+    priority: Int = 0
+) {
+    private val tag = "DjEqualizer"
+    var equalizer: Equalizer? = null
+        private set
+    var isEnabled: Boolean = false
+        private set
+
+    var minLevelMb: Short = -1500
+        private set
+    var maxLevelMb: Short = 1500
+        private set
+
+    val lowBands = mutableListOf<Short>()
+    val midBands = mutableListOf<Short>()
+    val highBands = mutableListOf<Short>()
+
+    private var currentLowNorm: Float = 0.5f
+    private var currentMidNorm: Float = 0.5f
+    private var currentHighNorm: Float = 0.5f
+
+    init {
+        try {
+            if (audioSessionId > 0) {
+                val eq = Equalizer(priority, audioSessionId)
+                eq.enabled = true
+                equalizer = eq
+                isEnabled = true
+
+                val range = eq.bandLevelRange
+                if (range != null && range.size >= 2) {
+                    minLevelMb = range[0]
+                    maxLevelMb = range[1]
+                }
+
+                val numBands = eq.numberOfBands.toInt()
+                for (b in 0 until numBands) {
+                    val band = b.toShort()
+                    // getCenterFreq returns milliHertz (mHz). Divide by 1000 to get Hz.
+                    val centerFreqHz = eq.getCenterFreq(band) / 1000
+                    when {
+                        centerFreqHz < 250 -> lowBands.add(band)
+                        centerFreqHz in 250..3500 -> midBands.add(band)
+                        else -> highBands.add(band)
+                    }
+                }
+
+                // Fallbacks to guarantee that every frequency segment has at least one band
+                if (lowBands.isEmpty() && numBands > 0) {
+                    lowBands.add(0.toShort())
+                }
+                if (highBands.isEmpty() && numBands > 1) {
+                    highBands.add((numBands - 1).toShort())
+                }
+                if (midBands.isEmpty() && numBands > 2) {
+                    for (b in 0 until numBands) {
+                        val band = b.toShort()
+                        if (!lowBands.contains(band) && !highBands.contains(band)) {
+                            midBands.add(band)
+                        }
+                    }
+                    if (midBands.isEmpty()) {
+                        midBands.add((numBands / 2).toShort())
+                    }
+                }
+
+                Log.d(tag, "Equalizer initialized for session $audioSessionId. Bands: $numBands, range: [$minLevelMb, $maxLevelMb] mB. Low: $lowBands, Mid: $midBands, High: $highBands")
+            }
+        } catch (e: Throwable) {
+            Log.w(tag, "AudioFx Equalizer not supported on this platform: ${e.message}")
+            equalizer = null
+            isEnabled = false
+        }
+    }
+
+    /**
+     * Maps normalized knob position [0.0f .. 1.0f] with center 0.5f = 0 dB
+     * - 0.0f -> minLevelMb
+     * - 0.5f -> 0 mB (0 dB)
+     * - 1.0f -> maxLevelMb
+     */
+    fun mapNormalizedToMilliBels(value: Float): Short {
+        val clamped = value.coerceIn(0.0f, 1.0f)
+        return when {
+            clamped < 0.5f -> {
+                val ratio = (0.5f - clamped) / 0.5f
+                (minLevelMb * ratio).toInt().toShort()
+            }
+            clamped > 0.5f -> {
+                val ratio = (clamped - 0.5f) / 0.5f
+                (maxLevelMb * ratio).toInt().toShort()
+            }
+            else -> 0.toShort()
+        }
+    }
+
+    fun setLow(value: Float) {
+        currentLowNorm = value.coerceIn(0.0f, 1.0f)
+        applyLevelToBands(lowBands, mapNormalizedToMilliBels(currentLowNorm))
+    }
+
+    fun setMid(value: Float) {
+        currentMidNorm = value.coerceIn(0.0f, 1.0f)
+        applyLevelToBands(midBands, mapNormalizedToMilliBels(currentMidNorm))
+    }
+
+    fun setHigh(value: Float) {
+        currentHighNorm = value.coerceIn(0.0f, 1.0f)
+        applyLevelToBands(highBands, mapNormalizedToMilliBels(currentHighNorm))
+    }
+
+    fun setBands(low: Float, mid: Float, high: Float) {
+        setLow(low)
+        setMid(mid)
+        setHigh(high)
+    }
+
+    private fun applyLevelToBands(bands: List<Short>, levelMb: Short) {
+        val eq = equalizer ?: return
+        try {
+            bands.forEach { band ->
+                eq.setBandLevel(band, levelMb)
+            }
+        } catch (e: Throwable) {
+            Log.w(tag, "Failed to set band level on Equalizer: ${e.message}")
+        }
+    }
+
+    fun release() {
+        try {
+            equalizer?.enabled = false
+            equalizer?.release()
+        } catch (_: Throwable) {}
+        equalizer = null
+        isEnabled = false
     }
 }
 
@@ -185,8 +566,8 @@ class DualExoPlayerEngine(
     val deckA: ExoPlayer = ExoPlayer.Builder(context).build()
     val deckB: ExoPlayer = ExoPlayer.Builder(context).build()
 
-    private var equalizerA: Equalizer? = null
-    private var equalizerB: Equalizer? = null
+    private var equalizerA: DjThreeBandEqualizer? = null
+    private var equalizerB: DjThreeBandEqualizer? = null
 
     // State flows
     private val _deckASong = MutableStateFlow<Cancion?>(null)
@@ -217,26 +598,52 @@ class DualExoPlayerEngine(
     val activeDeck: StateFlow<DeckId> = _activeDeck.asStateFlow()
 
     // 0.0f = Deck A only, 1.0f = Deck B only
-    private val _crossfaderPosition = MutableStateFlow(0.0f)
+    private val _crossfaderPosition = MutableStateFlow(0.5f)
     val crossfaderPosition: StateFlow<Float> = _crossfaderPosition.asStateFlow()
 
-    private val _isAutoDj = MutableStateFlow(true)
+    // Individual channel faders
+    private val _faderA = MutableStateFlow(0.9f)
+    val faderA: StateFlow<Float> = _faderA.asStateFlow()
+
+    private val _faderB = MutableStateFlow(0.9f)
+    val faderB: StateFlow<Float> = _faderB.asStateFlow()
+
+    private val _masterVolume = MutableStateFlow(0.85f)
+    val masterVolume: StateFlow<Float> = _masterVolume.asStateFlow()
+
+    private val _isAutoDj = MutableStateFlow(false)
     val isAutoDj: StateFlow<Boolean> = _isAutoDj.asStateFlow()
 
     private val _isDucked = MutableStateFlow(false)
     val isDucked: StateFlow<Boolean> = _isDucked.asStateFlow()
 
+    private val _duckMultiplier = MutableStateFlow(1.0f)
+    val duckMultiplier: StateFlow<Float> = _duckMultiplier.asStateFlow()
+
     private val _masterPlaying = MutableStateFlow(false)
     val masterPlaying: StateFlow<Boolean> = _masterPlaying.asStateFlow()
 
-    // EQ bands (-12dB to +12dB)
-    private val _eqLow = MutableStateFlow(0f)
+    // Normalized EQ bands (0.0 to 1.0, 0.5 = 0 dB)
+    private val _deckAEqLow = MutableStateFlow(0.5f)
+    val deckAEqLow: StateFlow<Float> = _deckAEqLow.asStateFlow()
+    private val _deckAEqMid = MutableStateFlow(0.5f)
+    val deckAEqMid: StateFlow<Float> = _deckAEqMid.asStateFlow()
+    private val _deckAEqHigh = MutableStateFlow(0.5f)
+    val deckAEqHigh: StateFlow<Float> = _deckAEqHigh.asStateFlow()
+
+    private val _deckBEqLow = MutableStateFlow(0.5f)
+    val deckBEqLow: StateFlow<Float> = _deckBEqLow.asStateFlow()
+    private val _deckBEqMid = MutableStateFlow(0.5f)
+    val deckBEqMid: StateFlow<Float> = _deckBEqMid.asStateFlow()
+    private val _deckBEqHigh = MutableStateFlow(0.5f)
+    val deckBEqHigh: StateFlow<Float> = _deckBEqHigh.asStateFlow()
+
+    // Backward compatibility global EQ flows
+    private val _eqLow = MutableStateFlow(0.5f)
     val eqLow: StateFlow<Float> = _eqLow.asStateFlow()
-
-    private val _eqMid = MutableStateFlow(0f)
+    private val _eqMid = MutableStateFlow(0.5f)
     val eqMid: StateFlow<Float> = _eqMid.asStateFlow()
-
-    private val _eqHigh = MutableStateFlow(0f)
+    private val _eqHigh = MutableStateFlow(0.5f)
     val eqHigh: StateFlow<Float> = _eqHigh.asStateFlow()
 
     // Animated waveform bars for Canvas
@@ -259,18 +666,29 @@ class DualExoPlayerEngine(
     }
 
     private fun initEqualizers() {
-        try {
-            val sessionA = deckA.audioSessionId
-            if (sessionA != 0) {
-                equalizerA = Equalizer(0, sessionA).apply { enabled = true }
-            }
-            val sessionB = deckB.audioSessionId
-            if (sessionB != 0) {
-                equalizerB = Equalizer(0, sessionB).apply { enabled = true }
-            }
-        } catch (_: Exception) {
-            // AudioFx may not be supported on all virtual emulators
+        ensureEqualizerForDeck(DeckId.DECK_A)
+        ensureEqualizerForDeck(DeckId.DECK_B)
+    }
+
+    private fun ensureEqualizerForDeck(deckId: DeckId): DjThreeBandEqualizer? {
+        val player = if (deckId == DeckId.DECK_A) deckA else deckB
+        val currentEq = if (deckId == DeckId.DECK_A) equalizerA else equalizerB
+        if (currentEq != null && currentEq.isEnabled) {
+            return currentEq
         }
+        val sessionId = player.audioSessionId
+        if (sessionId > 0) {
+            val newEq = DjThreeBandEqualizer(sessionId)
+            if (deckId == DeckId.DECK_A) {
+                equalizerA = newEq
+                newEq.setBands(_deckAEqLow.value, _deckAEqMid.value, _deckAEqHigh.value)
+            } else {
+                equalizerB = newEq
+                newEq.setBands(_deckBEqLow.value, _deckBEqMid.value, _deckBEqHigh.value)
+            }
+            return newEq
+        }
+        return null
     }
 
     private fun setupPlayerListeners() {
@@ -278,10 +696,12 @@ class DualExoPlayerEngine(
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _deckAIsPlaying.value = isPlaying
                 checkMasterPlaying()
+                if (isPlaying) ensureEqualizerForDeck(DeckId.DECK_A)
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     _deckADuration.value = deckA.duration.coerceAtLeast(1L)
+                    ensureEqualizerForDeck(DeckId.DECK_A)
                 }
             }
         })
@@ -290,10 +710,12 @@ class DualExoPlayerEngine(
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _deckBIsPlaying.value = isPlaying
                 checkMasterPlaying()
+                if (isPlaying) ensureEqualizerForDeck(DeckId.DECK_B)
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     _deckBDuration.value = deckB.duration.coerceAtLeast(1L)
+                    ensureEqualizerForDeck(DeckId.DECK_B)
                 }
             }
         })
@@ -378,6 +800,22 @@ class DualExoPlayerEngine(
     }
 
     fun triggerAutoCrossfade(fromDeck: DeckId, toDeck: DeckId) {
+        executeAutomixTransition(
+            fromDeck = fromDeck,
+            toDeck = toDeck,
+            type = TransitionType.CROSSFADE,
+            durationSec = 8.0f
+        )
+    }
+
+    fun executeAutomixTransition(
+        fromDeck: DeckId,
+        toDeck: DeckId,
+        type: TransitionType,
+        durationSec: Float,
+        harmonicKeyLock: Boolean = true,
+        onComplete: (() -> Unit)? = null
+    ) {
         if (isCrossfading) return
         crossfadeJob?.cancel()
         isCrossfading = true
@@ -385,35 +823,109 @@ class DualExoPlayerEngine(
         crossfadeJob = scope.launch {
             val incomingPlayer = if (toDeck == DeckId.DECK_A) deckA else deckB
             val outgoingPlayer = if (fromDeck == DeckId.DECK_A) deckA else deckB
+            val targetCrossfader = if (toDeck == DeckId.DECK_B) 1.0f else 0.0f
+            val startCrossfader = if (toDeck == DeckId.DECK_B) 0.0f else 1.0f
 
-            // Start incoming deck at 0.0f
-            if (toDeck == DeckId.DECK_A) {
-                _crossfaderPosition.value = 1.0f
-            } else {
-                _crossfaderPosition.value = 0.0f
+            val totalDurationMs = (durationSec.coerceIn(2f, 16f) * 1000f).toLong()
+
+            when (type) {
+                TransitionType.CROSSFADE -> {
+                    _crossfaderPosition.value = startCrossfader
+                    _faderA.value = 0.9f
+                    _faderB.value = 0.9f
+                    updateDeckVolumes()
+                    incomingPlayer.play()
+
+                    val steps = (totalDurationMs / 50L).toInt().coerceAtLeast(10)
+                    val delayPerStep = totalDurationMs / steps
+
+                    for (i in 1..steps) {
+                        delay(delayPerStep)
+                        val progress = i.toFloat() / steps
+                        _crossfaderPosition.value = startCrossfader + (targetCrossfader - startCrossfader) * progress
+                        updateDeckVolumes()
+                    }
+
+                    _crossfaderPosition.value = targetCrossfader
+                    updateDeckVolumes()
+                    outgoingPlayer.pause()
+                }
+                TransitionType.BEATMATCH_SYNC -> {
+                    if (harmonicKeyLock) {
+                        try {
+                            incomingPlayer.playbackParameters = androidx.media3.common.PlaybackParameters(1.0f, 1.0f)
+                        } catch (_: Throwable) {}
+                    }
+                    _crossfaderPosition.value = startCrossfader
+                    _faderA.value = 0.9f
+                    _faderB.value = 0.9f
+                    updateDeckVolumes()
+                    incomingPlayer.play()
+
+                    val steps = (totalDurationMs / 50L).toInt().coerceAtLeast(10)
+                    val delayPerStep = totalDurationMs / steps
+
+                    for (i in 1..steps) {
+                        delay(delayPerStep)
+                        val progress = i.toFloat() / steps
+                        // Equal power progression curve
+                        _crossfaderPosition.value = startCrossfader + (targetCrossfader - startCrossfader) * progress
+                        updateDeckVolumes()
+                    }
+
+                    _crossfaderPosition.value = targetCrossfader
+                    updateDeckVolumes()
+                    outgoingPlayer.pause()
+                }
+                TransitionType.FADE_OUT_IN -> {
+                    val halfDuration = totalDurationMs / 2
+                    val stepsHalf = (halfDuration / 50L).toInt().coerceAtLeast(5)
+                    val delayHalf = halfDuration / stepsHalf
+
+                    val outgoingFader = if (fromDeck == DeckId.DECK_A) _faderA else _faderB
+                    val incomingFader = if (toDeck == DeckId.DECK_A) _faderA else _faderB
+
+                    // Phase 1: Fade out outgoing deck to 0
+                    for (i in 1..stepsHalf) {
+                        delay(delayHalf)
+                        val progress = i.toFloat() / stepsHalf
+                        outgoingFader.value = (0.9f * (1.0f - progress)).coerceIn(0.0f, 0.9f)
+                        updateDeckVolumes()
+                    }
+
+                    outgoingPlayer.pause()
+                    outgoingFader.value = 0.9f
+
+                    // Phase 2: Switch to incoming deck and fade in
+                    _crossfaderPosition.value = targetCrossfader
+                    incomingFader.value = 0.0f
+                    updateDeckVolumes()
+                    incomingPlayer.play()
+
+                    for (i in 1..stepsHalf) {
+                        delay(delayHalf)
+                        val progress = i.toFloat() / stepsHalf
+                        incomingFader.value = (0.9f * progress).coerceIn(0.0f, 0.9f)
+                        updateDeckVolumes()
+                    }
+
+                    incomingFader.value = 0.9f
+                    updateDeckVolumes()
+                }
+                TransitionType.CORTE_DIRECTO -> {
+                    outgoingPlayer.pause()
+                    _crossfaderPosition.value = targetCrossfader
+                    _faderA.value = 0.9f
+                    _faderB.value = 0.9f
+                    updateDeckVolumes()
+                    incomingPlayer.play()
+                    delay(100L)
+                }
             }
-            updateDeckVolumes()
-            incomingPlayer.play()
 
-            // 10s linear crossfade (100 steps of 100ms)
-            val steps = 100
-            val delayPerStep = 100L
-            val startX = _crossfaderPosition.value
-            val targetX = if (toDeck == DeckId.DECK_B) 1.0f else 0.0f
-
-            for (i in 1..steps) {
-                delay(delayPerStep)
-                val progress = i.toFloat() / steps
-                _crossfaderPosition.value = startX + (targetX - startX) * progress
-                updateDeckVolumes()
-            }
-
-            // Finish transition
-            _crossfaderPosition.value = targetX
-            updateDeckVolumes()
-            outgoingPlayer.pause()
             _activeDeck.value = toDeck
             isCrossfading = false
+            onComplete?.invoke()
         }
     }
 
@@ -421,8 +933,24 @@ class DualExoPlayerEngine(
         _isAutoDj.value = enabled
     }
 
-    fun setDucking(ducked: Boolean) {
+    fun setDucking(ducked: Boolean, level: Float = 0.15f) {
         _isDucked.value = ducked
+        _duckMultiplier.value = if (ducked) level.coerceIn(0.05f, 1.0f) else 1.0f
+        updateDeckVolumes()
+    }
+
+    fun setMasterVolume(volume: Float) {
+        _masterVolume.value = volume.coerceIn(0.0f, 1.0f)
+        updateDeckVolumes()
+    }
+
+    fun setDeckFader(deckId: DeckId, volume: Float) {
+        val clamped = volume.coerceIn(0.0f, 1.0f)
+        if (deckId == DeckId.DECK_A) {
+            _faderA.value = clamped
+        } else {
+            _faderB.value = clamped
+        }
         updateDeckVolumes()
     }
 
@@ -431,8 +959,9 @@ class DualExoPlayerEngine(
             crossfadeJob?.cancel()
             isCrossfading = false
         }
-        _crossfaderPosition.value = position.coerceIn(0.0f, 1.0f)
-        if (position < 0.5f) {
+        val clamped = position.coerceIn(0.0f, 1.0f)
+        _crossfaderPosition.value = clamped
+        if (clamped < 0.5f) {
             _activeDeck.value = DeckId.DECK_A
         } else {
             _activeDeck.value = DeckId.DECK_B
@@ -440,40 +969,74 @@ class DualExoPlayerEngine(
         updateDeckVolumes()
     }
 
+    /**
+     * Controls progressively the linear volume of Deck A and Deck B in real time:
+     * - Crossfader position:
+     *     0.0 (Deck A full cut): crossA = 1.0, crossB = 0.0
+     *     0.5 (Center 50/50):    crossA = 0.5, crossB = 0.5
+     *     1.0 (Deck B full cut): crossA = 0.0, crossB = 1.0
+     * - Multiplied by Channel Fader (Fader A, Fader B), Master Volume, and Audio Ducking.
+     */
     fun updateDeckVolumes() {
-        val xf = _crossfaderPosition.value
-        val duckMultiplier = if (_isDucked.value) 0.15f else 1.0f
+        val xf = _crossfaderPosition.value.coerceIn(0.0f, 1.0f)
+        val fA = _faderA.value.coerceIn(0.0f, 1.0f)
+        val fB = _faderB.value.coerceIn(0.0f, 1.0f)
+        val master = _masterVolume.value.coerceIn(0.0f, 1.0f)
+        val duck = if (_isDucked.value) _duckMultiplier.value.coerceIn(0.05f, 1.0f) else 1.0f
 
-        // Linear crossfade: 1.0 -> 0.0 for Deck A, 0.0 -> 1.0 for Deck B
-        val volA = (1.0f - xf).coerceIn(0.0f, 1.0f) * duckMultiplier
-        val volB = xf.coerceIn(0.0f, 1.0f) * duckMultiplier
+        val crossA = (1.0f - xf).coerceIn(0.0f, 1.0f)
+        val crossB = xf.coerceIn(0.0f, 1.0f)
+
+        val volA = (fA * crossA * master * duck).coerceIn(0.0f, 1.0f)
+        val volB = (fB * crossB * master * duck).coerceIn(0.0f, 1.0f)
 
         deckA.volume = volA
         deckB.volume = volB
     }
 
-    fun setEq(low: Float, mid: Float, high: Float) {
-        _eqLow.value = low.coerceIn(-12f, 12f)
-        _eqMid.value = mid.coerceIn(-12f, 12f)
-        _eqHigh.value = high.coerceIn(-12f, 12f)
-        applyEqBands()
+    /**
+     * Sets 3-Band Equalizer (LOW, MID, HI) for a specific deck:
+     * Maps normalized knob position [0.0 .. 1.0] with center [0.5] = 0 dB
+     * to the hardware android.media.audiofx.Equalizer frequency bands.
+     */
+    fun setDeckEq(deckId: DeckId, low: Float, mid: Float, high: Float) {
+        val clampedLow = low.coerceIn(0.0f, 1.0f)
+        val clampedMid = mid.coerceIn(0.0f, 1.0f)
+        val clampedHigh = high.coerceIn(0.0f, 1.0f)
+
+        if (deckId == DeckId.DECK_A) {
+            _deckAEqLow.value = clampedLow
+            _deckAEqMid.value = clampedMid
+            _deckAEqHigh.value = clampedHigh
+            ensureEqualizerForDeck(DeckId.DECK_A)?.setBands(clampedLow, clampedMid, clampedHigh)
+        } else {
+            _deckBEqLow.value = clampedLow
+            _deckBEqMid.value = clampedMid
+            _deckBEqHigh.value = clampedHigh
+            ensureEqualizerForDeck(DeckId.DECK_B)?.setBands(clampedLow, clampedMid, clampedHigh)
+        }
     }
 
-    private fun applyEqBands() {
-        val lowMb = (_eqLow.value * 100).toInt().toShort()
-        val midMb = (_eqMid.value * 100).toInt().toShort()
-        val highMb = (_eqHigh.value * 100).toInt().toShort()
+    /**
+     * Legacy / Global EQ: Accepts either normalized [0.0 .. 1.0] or dB [-12 .. +12]
+     * and synchronizes to both decks.
+     */
+    fun setEq(low: Float, mid: Float, high: Float) {
+        val normLow = if (low < 0f || low > 1f || high < 0f || high > 1f || mid < 0f || mid > 1f) {
+            ((low + 12f) / 24f).coerceIn(0f, 1f)
+        } else low
+        val normMid = if (low < 0f || low > 1f || high < 0f || high > 1f || mid < 0f || mid > 1f) {
+            ((mid + 12f) / 24f).coerceIn(0f, 1f)
+        } else mid
+        val normHigh = if (low < 0f || low > 1f || high < 0f || high > 1f || mid < 0f || mid > 1f) {
+            ((high + 12f) / 24f).coerceIn(0f, 1f)
+        } else high
 
-        listOfNotNull(equalizerA, equalizerB).forEach { eq ->
-            try {
-                val numBands = eq.numberOfBands.toInt()
-                if (numBands >= 3) {
-                    eq.setBandLevel(0, lowMb)
-                    eq.setBandLevel((numBands / 2).toShort(), midMb)
-                    eq.setBandLevel((numBands - 1).toShort(), highMb)
-                }
-            } catch (_: Exception) {}
-        }
+        _eqLow.value = normLow
+        _eqMid.value = normMid
+        _eqHigh.value = normHigh
+        setDeckEq(DeckId.DECK_A, normLow, normMid, normHigh)
+        setDeckEq(DeckId.DECK_B, normLow, normMid, normHigh)
     }
 
     fun loadSong(deckId: DeckId, cancion: Cancion) {
@@ -482,14 +1045,19 @@ class DualExoPlayerEngine(
             _deckASong.value = cancion
             deckA.setMediaItem(mediaItem)
             deckA.prepare()
+            ensureEqualizerForDeck(DeckId.DECK_A)
         } else {
             _deckBSong.value = cancion
             deckB.setMediaItem(mediaItem)
             deckB.prepare()
+            ensureEqualizerForDeck(DeckId.DECK_B)
         }
+        updateDeckVolumes()
     }
 
     fun playDeck(deckId: DeckId) {
+        ensureEqualizerForDeck(deckId)
+        updateDeckVolumes()
         if (deckId == DeckId.DECK_A) {
             deckA.play()
             _activeDeck.value = DeckId.DECK_A

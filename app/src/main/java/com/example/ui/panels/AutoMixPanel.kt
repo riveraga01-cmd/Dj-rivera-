@@ -1,6 +1,7 @@
 package com.example.ui.panels
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -85,7 +86,10 @@ fun AutoMixPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.AutoAwesome,
                         contentDescription = "AutoMix",
@@ -100,9 +104,11 @@ fun AutoMixPanel(
                         fontSize = 12.sp,
                         letterSpacing = 0.5.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee()
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Botón [INICIAR / DETENER AUTOMIX]
                 Button(
@@ -127,7 +133,7 @@ fun AutoMixPanel(
                         fontWeight = FontWeight.Black,
                         fontSize = 10.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee()
                     )
                 }
             }
@@ -154,7 +160,7 @@ fun AutoMixPanel(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
                         Spacer(modifier = Modifier.height(4.dp))
 
@@ -173,7 +179,8 @@ fun AutoMixPanel(
                                         RoundedCornerShape(6.dp)
                                     )
                                     .clickable { onTransitionTypeChange(trans) }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .testTag("transition_${trans.name.lowercase()}"),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -183,7 +190,7 @@ fun AutoMixPanel(
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                     fontSize = 10.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.weight(1f, fill = false).basicMarquee()
                                 )
                                 if (isSelected) {
                                     Box(
@@ -208,15 +215,14 @@ fun AutoMixPanel(
                                 color = DjTextMuted,
                                 fontSize = 9.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                             Text(
                                 text = "${state.autoMixDurationSec.toInt()} seg",
                                 color = DjGreen,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 9.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 1
                             )
                         }
                         Slider(
@@ -224,7 +230,7 @@ fun AutoMixPanel(
                             onValueChange = onDurationChange,
                             valueRange = 2f..16f,
                             colors = SliderDefaults.colors(thumbColor = DjGreen, activeTrackColor = DjGreen),
-                            modifier = Modifier.fillMaxWidth().height(22.dp)
+                            modifier = Modifier.fillMaxWidth().height(22.dp).testTag("automix_duration_slider")
                         )
                     }
                 }
@@ -247,7 +253,7 @@ fun AutoMixPanel(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
 
                         // Switch [MEZCLA ARMÓNICA - KEY LOCK]
@@ -309,16 +315,16 @@ fun AutoMixPanel(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.weight(1f, fill = false).basicMarquee()
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "EN ${state.autoMixCountdownSec}s",
                                     color = if (state.autoMixCountdownSec <= 10) DjRed else DjGreen,
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    maxLines = 1
                                 )
                             }
 
@@ -340,14 +346,14 @@ fun AutoMixPanel(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        modifier = Modifier.basicMarquee()
                                     )
                                     Text(
                                         text = "${state.nextSong?.artista ?: "Orquesta Rivera"} • ${state.nextSong?.genero ?: "Cumbia"}",
                                         color = DjTextMuted,
                                         fontSize = 9.sp,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        modifier = Modifier.basicMarquee()
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Row(
@@ -360,8 +366,7 @@ fun AutoMixPanel(
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 9.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            maxLines = 1
                                         )
                                         Text(
                                             text = "KEY: ${state.nextSongKey}",
@@ -369,16 +374,14 @@ fun AutoMixPanel(
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 9.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            maxLines = 1
                                         )
                                         Text(
                                             text = "SYNC: LISTO",
                                             color = DjGreen,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 9.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            maxLines = 1
                                         )
                                     }
                                 }
@@ -393,7 +396,7 @@ fun AutoMixPanel(
                             modifier = Modifier.fillMaxWidth().height(32.dp).testTag("skip_track_button"),
                             shape = RoundedCornerShape(6.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = DjOrange),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
@@ -408,7 +411,7 @@ fun AutoMixPanel(
                                 fontWeight = FontWeight.Black,
                                 fontSize = 9.5.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                         }
                     }

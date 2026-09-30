@@ -1,5 +1,10 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -13,6 +18,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -37,24 +43,32 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,15 +77,22 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
@@ -106,6 +127,41 @@ fun DjConsoleScreen(
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+
+    val audioPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.scanMediaStoreMusic()
+        } else {
+            viewModel.setLocalPermissionDenied(true)
+        }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            if (state.micOn) viewModel.setMicOn(true)
+            if (state.talkOverActive) viewModel.setTalkOver(true)
+        }
+    }
+
+    val onScanLocalMusic: () -> Unit = {
+        val hasPermission = ContextCompat.checkSelfPermission(context, audioPermission) == PackageManager.PERMISSION_GRANTED
+        if (hasPermission) {
+            viewModel.scanMediaStoreMusic()
+        } else {
+            permissionLauncher.launch(audioPermission)
+        }
+    }
 
     Surface(
         modifier = modifier
@@ -198,8 +254,30 @@ fun DjConsoleScreen(
                         RackTab.MIC_FX -> {
                             MicFxPanel(
                                 state = state,
-                                onToggleMic = { viewModel.setMicOn(it) },
-                                onToggleTalkOver = { viewModel.setTalkOver(it) },
+                                onToggleMic = { enable ->
+                                    if (enable) {
+                                        val hasPerm = ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (!hasPerm) {
+                                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                    viewModel.setMicOn(enable)
+                                },
+                                onToggleTalkOver = { enable ->
+                                    if (enable) {
+                                        val hasPerm = ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (!hasPerm) {
+                                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                    viewModel.setTalkOver(enable)
+                                },
                                 onMicGainChange = { viewModel.setMicGain(it) },
                                 onSelectEffect = { viewModel.setMicEffect(it) },
                                 onPitchChange = { viewModel.setPitchShiftValue(it) },
@@ -257,7 +335,22 @@ fun DjConsoleScreen(
             LowerLibrarySection(
                 state = state,
                 onSearchChange = { viewModel.setLibrarySearch(it) },
-                onSelectGenre = { viewModel.setLibraryGenre(it) },
+                onSelectGenre = { genre ->
+                    if (genre == "Local") {
+                        val hasPermission = ContextCompat.checkSelfPermission(context, audioPermission) == PackageManager.PERMISSION_GRANTED
+                        if (hasPermission) {
+                            viewModel.setLibraryGenre("Local")
+                            viewModel.scanMediaStoreMusic()
+                        } else {
+                            viewModel.setLibraryGenre("Local")
+                            permissionLauncher.launch(audioPermission)
+                        }
+                    } else {
+                        viewModel.setLibraryGenre(genre)
+                    }
+                },
+                onScanLocalMusic = onScanLocalMusic,
+                onImportSongsJson = { viewModel.importSongsFromJson(it) },
                 onLoadToDeckA = { viewModel.loadSongToDeck(it, DeckId.DECK_A) },
                 onLoadToDeckB = { viewModel.loadSongToDeck(it, DeckId.DECK_B) }
             )
@@ -329,17 +422,19 @@ fun MasterHeaderBar(
                         fontSize = 15.sp,
                         letterSpacing = 1.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee()
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.basicMarquee(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
                             text = "MASTER BPM: ${state.masterBpm}",
                             color = DjCyan,
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 1
                         )
                         Text(
                             text = "CIERRE: ${state.closingTimeText}",
@@ -347,8 +442,7 @@ fun MasterHeaderBar(
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 1
                         )
                         if (state.activeDucking) {
                             Text(
@@ -356,8 +450,7 @@ fun MasterHeaderBar(
                                 color = DjAmber,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 1
                             )
                         }
                     }
@@ -567,14 +660,14 @@ fun DeckHardwareView(
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.5.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    modifier = Modifier.basicMarquee()
                 )
                 Text(
                     text = deck.song?.artista ?: "Arrastra desde la librería",
                     color = DjTextMuted,
                     fontSize = 9.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    modifier = Modifier.basicMarquee()
                 )
             }
 
@@ -673,6 +766,16 @@ fun DeckHardwareView(
     }
 }
 
+fun formatEqDb(value: Float, maxDb: Float = 15f): String {
+    val clamped = value.coerceIn(0.0f, 1.0f)
+    val db = (clamped - 0.5f) / 0.5f * maxDb
+    return when {
+        db > 0.05f -> "+${String.format(java.util.Locale.US, "%.1f", db)}dB"
+        db < -0.05f -> "${String.format(java.util.Locale.US, "%.1f", db)}dB"
+        else -> "0 dB"
+    }
+}
+
 @Composable
 fun CentralMixerHardwareView(
     state: DjConsoleState,
@@ -698,7 +801,7 @@ fun CentralMixerHardwareView(
                 fontWeight = FontWeight.Bold,
                 fontSize = 10.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                modifier = Modifier.basicMarquee()
             )
 
             // EQ 3-Band Knobs for Channel A and Channel B
@@ -712,9 +815,9 @@ fun CentralMixerHardwareView(
                     RotaryKnob(
                         value = state.deckA.eqHigh,
                         onValueChange = { viewModel.setDeckEq(DeckId.DECK_A, state.deckA.eqLow, state.deckA.eqMid, it) },
-                        range = -12f..12f,
+                        range = 0f..1f,
                         label = "HI",
-                        displayValue = "${state.deckA.eqHigh.toInt()}dB",
+                        displayValue = formatEqDb(state.deckA.eqHigh),
                         accentColor = DjCyan,
                         size = 36.dp,
                         bipolar = true
@@ -722,9 +825,9 @@ fun CentralMixerHardwareView(
                     RotaryKnob(
                         value = state.deckA.eqMid,
                         onValueChange = { viewModel.setDeckEq(DeckId.DECK_A, state.deckA.eqLow, it, state.deckA.eqHigh) },
-                        range = -12f..12f,
+                        range = 0f..1f,
                         label = "MID",
-                        displayValue = "${state.deckA.eqMid.toInt()}dB",
+                        displayValue = formatEqDb(state.deckA.eqMid),
                         accentColor = DjCyan,
                         size = 36.dp,
                         bipolar = true
@@ -732,9 +835,9 @@ fun CentralMixerHardwareView(
                     RotaryKnob(
                         value = state.deckA.eqLow,
                         onValueChange = { viewModel.setDeckEq(DeckId.DECK_A, it, state.deckA.eqMid, state.deckA.eqHigh) },
-                        range = -12f..12f,
+                        range = 0f..1f,
                         label = "LOW",
-                        displayValue = "${state.deckA.eqLow.toInt()}dB",
+                        displayValue = formatEqDb(state.deckA.eqLow),
                         accentColor = DjCyan,
                         size = 36.dp,
                         bipolar = true
@@ -770,9 +873,9 @@ fun CentralMixerHardwareView(
                     RotaryKnob(
                         value = state.deckB.eqHigh,
                         onValueChange = { viewModel.setDeckEq(DeckId.DECK_B, state.deckB.eqLow, state.deckB.eqMid, it) },
-                        range = -12f..12f,
+                        range = 0f..1f,
                         label = "HI",
-                        displayValue = "${state.deckB.eqHigh.toInt()}dB",
+                        displayValue = formatEqDb(state.deckB.eqHigh),
                         accentColor = DjOrange,
                         size = 36.dp,
                         bipolar = true
@@ -780,9 +883,9 @@ fun CentralMixerHardwareView(
                     RotaryKnob(
                         value = state.deckB.eqMid,
                         onValueChange = { viewModel.setDeckEq(DeckId.DECK_B, state.deckB.eqLow, it, state.deckB.eqHigh) },
-                        range = -12f..12f,
+                        range = 0f..1f,
                         label = "MID",
-                        displayValue = "${state.deckB.eqMid.toInt()}dB",
+                        displayValue = formatEqDb(state.deckB.eqMid),
                         accentColor = DjOrange,
                         size = 36.dp,
                         bipolar = true
@@ -790,9 +893,9 @@ fun CentralMixerHardwareView(
                     RotaryKnob(
                         value = state.deckB.eqLow,
                         onValueChange = { viewModel.setDeckEq(DeckId.DECK_B, it, state.deckB.eqMid, state.deckB.eqHigh) },
-                        range = -12f..12f,
+                        range = 0f..1f,
                         label = "LOW",
-                        displayValue = "${state.deckB.eqLow.toInt()}dB",
+                        displayValue = formatEqDb(state.deckB.eqLow),
                         accentColor = DjOrange,
                         size = 36.dp,
                         bipolar = true
@@ -951,10 +1054,17 @@ fun LowerLibrarySection(
     state: DjConsoleState,
     onSearchChange: (String) -> Unit,
     onSelectGenre: (String) -> Unit,
+    onScanLocalMusic: () -> Unit,
+    onImportSongsJson: (String) -> Result<Int>,
     onLoadToDeckA: (Cancion) -> Unit,
     onLoadToDeckB: (Cancion) -> Unit
 ) {
-    val genres = listOf("TODOS", "Cumbia", "Salsa", "Electrónica", "Bachata", "Urbano", "Merengue", "Local")
+    var showImportDialog by remember { mutableStateOf(false) }
+    var importStatusMessage by remember { mutableStateOf<String?>(null) }
+
+    val baseGenres = listOf("TODOS", "Cumbia", "Salsa", "Electrónica", "Bachata", "Urbano", "Merengue")
+    val customGenres = state.librarySongs.map { it.genero }.filter { it !in baseGenres && it != "Local" }.distinct()
+    val genres = (baseGenres + customGenres + "Local").distinct()
 
     val filteredSongs = state.librarySongs.filter { song ->
         val matchesGenre = state.librarySelectedGenre == "TODOS" || song.genero.equals(state.librarySelectedGenre, ignoreCase = true)
@@ -979,7 +1089,10 @@ fun LowerLibrarySection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.LibraryMusic,
                         contentDescription = "Biblioteca",
@@ -993,27 +1106,101 @@ fun LowerLibrarySection(
                         fontWeight = FontWeight.Black,
                         fontSize = 11.5.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee()
                     )
                 }
 
-                // Search field
-                OutlinedTextField(
-                    value = state.librarySearchQuery,
-                    onValueChange = onSearchChange,
-                    placeholder = { Text("Buscar canción o artista...", fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(imageVector = Icons.Default.Search, contentDescription = "Buscar", tint = DjTextMuted, modifier = Modifier.size(14.dp))
-                    },
-                    modifier = Modifier.width(220.dp).height(42.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = DjCyan,
-                        unfocusedBorderColor = DjBorder
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Botón Importar JSON
+                    Button(
+                        onClick = { showImportDialog = true },
+                        modifier = Modifier
+                            .height(38.dp)
+                            .testTag("import_json_button"),
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B2232)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DjCyan),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DataObject,
+                            contentDescription = "Cargar JSON",
+                            tint = DjCyan,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "IMPORTAR JSON",
+                            color = DjCyan,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 9.5.sp
+                        )
+                    }
+
+                    if (state.librarySelectedGenre == "Local") {
+                        IconButton(
+                            onClick = onScanLocalMusic,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Escanear música local",
+                                tint = DjCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Search field
+                    OutlinedTextField(
+                        value = state.librarySearchQuery,
+                        onValueChange = onSearchChange,
+                        placeholder = { Text("Buscar canción o artista...", fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(imageVector = Icons.Default.Search, contentDescription = "Buscar", tint = DjTextMuted, modifier = Modifier.size(14.dp))
+                        },
+                        modifier = Modifier.width(180.dp).height(38.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = DjCyan,
+                            unfocusedBorderColor = DjBorder
+                        )
                     )
-                )
+                }
+            }
+
+            // Notification / Feedback banner when songs are loaded
+            if (importStatusMessage != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(DjGreen.copy(alpha = 0.15f))
+                        .border(1.dp, DjGreen, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = importStatusMessage ?: "",
+                        color = DjGreen,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "✕",
+                        color = DjGreen,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { importStatusMessage = null }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -1027,95 +1214,228 @@ fun LowerLibrarySection(
             ) {
                 genres.forEach { g ->
                     val isSel = g == state.librarySelectedGenre
+                    val isLocal = g == "Local"
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (isSel) DjCyan else Color(0xFF161922))
                             .border(1.dp, if (isSel) DjCyan else Color(0xFF262D3E), RoundedCornerShape(4.dp))
                             .clickable { onSelectGenre(g) }
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text(
-                            text = g,
-                            color = if (isSel) Color.Black else Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 9.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isLocal) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = if (isSel) Color.Black else DjCyan,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = if (isLocal && state.localSongsCount > 0) "Local (${state.localSongsCount})" else g,
+                                color = if (isSel) Color.Black else Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Song list
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(130.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                items(filteredSongs, key = { it.id }) { cancion ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF141722))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            // Song list & States
+            if (state.librarySelectedGenre == "Local" && state.isScanningLocalMedia) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        CircularProgressIndicator(
+                            color = DjCyan,
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = "Buscando archivos de audio (.mp3, .wav, .aac)...",
+                            color = DjCyan,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            } else if (state.librarySelectedGenre == "Local" && state.localPermissionDenied && filteredSongs.isEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E141E)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DjRed.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Lock, contentDescription = "Permiso", tint = DjRed, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = cancion.titulo,
+                                text = "PERMISO DE ACCESO A AUDIO REQUERIDO",
                                 color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${cancion.artista} • ${cancion.genero} • ${formatTime(cancion.duracionMs)}",
-                                color = DjTextMuted,
-                                fontSize = 8.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
                             )
                         }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Para reproducir archivos de tu almacenamiento en los Decks, concede permiso de lectura de medios.",
+                            color = DjTextMuted,
+                            fontSize = 8.5.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            maxLines = 2
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = onScanLocalMusic,
+                            modifier = Modifier.height(28.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = DjCyan),
+                            contentPadding = PaddingValues(horizontal = 10.dp)
+                        ) {
+                            Icon(Icons.Default.Folder, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("CONCEDER PERMISO Y ESCANEAR", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        }
+                    }
+                }
+            } else if (filteredSongs.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = DjTextMuted,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = if (state.librarySelectedGenre == "Local") "No se encontraron archivos .mp3, .wav o .aac en el dispositivo"
+                            else "No se encontraron canciones con los filtros actuales",
+                            color = DjTextMuted,
+                            fontSize = 9.5.sp
+                        )
+                        if (state.librarySelectedGenre == "Local") {
                             Button(
-                                onClick = { onLoadToDeckA(cancion) },
-                                modifier = Modifier.height(24.dp),
+                                onClick = onScanLocalMusic,
+                                modifier = Modifier.height(26.dp),
                                 shape = RoundedCornerShape(4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = DjCyan.copy(alpha = 0.3f)),
-                                contentPadding = PaddingValues(horizontal = 6.dp)
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF262D3E)),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Text(
-                                    text = "A DECK A",
-                                    color = DjCyan,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 8.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = DjCyan, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("ESCANEAR ALMACENAMIENTO", color = DjCyan, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                             }
-                            Button(
-                                onClick = { onLoadToDeckB(cancion) },
-                                modifier = Modifier.height(24.dp),
-                                shape = RoundedCornerShape(4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = DjOrange.copy(alpha = 0.3f)),
-                                contentPadding = PaddingValues(horizontal = 6.dp)
-                            ) {
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    items(filteredSongs, key = { it.id }) { cancion ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF141722))
+                                .clickable { onLoadToDeckA(cancion) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "A DECK B",
-                                    color = DjOrange,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 8.sp,
+                                    text = cancion.titulo,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (cancion.genero == "Local") {
+                                        Text(
+                                            text = "LOCAL • ",
+                                            color = DjCyan,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 8.5.sp
+                                        )
+                                    }
+                                    Text(
+                                        text = "${cancion.artista} • ${if (cancion.genero != "Local") cancion.genero + " • " else ""}${formatTime(cancion.duracionMs)}",
+                                        color = DjTextMuted,
+                                        fontSize = 8.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Button(
+                                    onClick = { onLoadToDeckA(cancion) },
+                                    modifier = Modifier.height(24.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = DjCyan.copy(alpha = 0.3f)),
+                                    contentPadding = PaddingValues(horizontal = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "A DECK A",
+                                        color = DjCyan,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 8.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                                Button(
+                                    onClick = { onLoadToDeckB(cancion) },
+                                    modifier = Modifier.height(24.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = DjOrange.copy(alpha = 0.3f)),
+                                    contentPadding = PaddingValues(horizontal = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "A DECK B",
+                                        color = DjOrange,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 8.sp,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
@@ -1123,4 +1443,185 @@ fun LowerLibrarySection(
             }
         }
     }
+
+    if (showImportDialog) {
+        ImportSongsJsonDialog(
+            onDismiss = { showImportDialog = false },
+            onConfirmImport = { jsonStr ->
+                val res = onImportSongsJson(jsonStr)
+                res.onSuccess { count ->
+                    importStatusMessage = "✓ Se cargaron dinámicamente $count canciones a la biblioteca."
+                }
+                res
+            }
+        )
+    }
+}
+
+@Composable
+fun ImportSongsJsonDialog(
+    onDismiss: () -> Unit,
+    onConfirmImport: (String) -> Result<Int>
+) {
+    var jsonText by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var parsedPreviewCount by remember { mutableStateOf<Int?>(null) }
+
+    // Live validation whenever user changes input
+    LaunchedEffect(jsonText) {
+        if (jsonText.isBlank()) {
+            errorMessage = null
+            parsedPreviewCount = null
+        } else {
+            try {
+                val parsed = SongJsonParser.parse(jsonText)
+                parsedPreviewCount = parsed.size
+                errorMessage = null
+            } catch (e: Exception) {
+                parsedPreviewCount = null
+                errorMessage = e.message
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.DataObject,
+                    contentDescription = null,
+                    tint = DjCyan,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "IMPORTAR CANCIONES VÍA JSON",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Ingresa una estructura JSON simplificada (lista de pistas con título, artista, género y duración) para cargarlas dinámicamente en la consola.",
+                    fontSize = 10.sp,
+                    color = DjTextMuted,
+                    lineHeight = 14.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Estructura JSON:",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DjCyan
+                    )
+                    TextButton(
+                        onClick = { jsonText = SongJsonParser.SAMPLE_JSON },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentPaste,
+                            contentDescription = null,
+                            tint = DjGreen,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Pegar Ejemplo",
+                            color = DjGreen,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                OutlinedTextField(
+                    value = jsonText,
+                    onValueChange = { jsonText = it },
+                    placeholder = {
+                        Text(
+                            "[ {\"titulo\": \"Mi Canción\", \"artista\": \"DJ\", \"genero\": \"Cumbia\", \"duracionSeg\": 180} ]",
+                            fontSize = 9.sp,
+                            color = DjTextMuted
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .testTag("json_input_field"),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.5.sp,
+                        color = Color.White
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = DjCyan,
+                        unfocusedBorderColor = DjBorder,
+                        focusedContainerColor = Color(0xFF10131B),
+                        unfocusedContainerColor = Color(0xFF10131B)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (parsedPreviewCount != null) {
+                    Text(
+                        text = "✓ Estructura válida: $parsedPreviewCount canción(es) lista(s) para cargar.",
+                        color = DjGreen,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else if (errorMessage != null && jsonText.isNotBlank()) {
+                    Text(
+                        text = "⚠ Error: $errorMessage",
+                        color = DjRed,
+                        fontSize = 9.sp,
+                        maxLines = 2
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val result = onConfirmImport(jsonText)
+                    result.onSuccess {
+                        onDismiss()
+                    }.onFailure { err ->
+                        errorMessage = err.message ?: "Error al importar JSON"
+                    }
+                },
+                enabled = jsonText.isNotBlank() && errorMessage == null,
+                colors = ButtonDefaults.buttonColors(containerColor = DjCyan),
+                modifier = Modifier.testTag("import_json_confirm_button")
+            ) {
+                Text(
+                    text = "CARGAR A BIBLIOTECA",
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCELAR", color = DjTextMuted, fontSize = 10.sp)
+            }
+        },
+        containerColor = DjPanelDark,
+        shape = RoundedCornerShape(12.dp)
+    )
 }

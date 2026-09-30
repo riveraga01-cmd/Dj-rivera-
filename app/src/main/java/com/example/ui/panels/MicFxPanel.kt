@@ -1,6 +1,7 @@
 package com.example.ui.panels
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,7 +84,10 @@ fun MicFxPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = if (state.micOn) Icons.Default.Mic else Icons.Default.MicOff,
                         contentDescription = "Mic",
@@ -98,9 +102,11 @@ fun MicFxPanel(
                         fontSize = 12.sp,
                         letterSpacing = 0.5.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee()
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Global Status
                 Text(
@@ -109,7 +115,7 @@ fun MicFxPanel(
                     fontWeight = FontWeight.Bold,
                     fontSize = 10.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    modifier = Modifier.basicMarquee()
                 )
             }
 
@@ -138,7 +144,7 @@ fun MicFxPanel(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -168,7 +174,7 @@ fun MicFxPanel(
                                 1.dp,
                                 if (state.talkOverActive) DjOrange else Color(0xFF38435C)
                             ),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.RecordVoiceOver,
@@ -183,7 +189,7 @@ fun MicFxPanel(
                                 fontWeight = FontWeight.Black,
                                 fontSize = 10.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                         }
 
@@ -213,7 +219,7 @@ fun MicFxPanel(
                                     fontSize = 8.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 VuMeterLed(
@@ -242,7 +248,7 @@ fun MicFxPanel(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
 
                         Spacer(modifier = Modifier.height(6.dp))
@@ -265,7 +271,8 @@ fun MicFxPanel(
                                             RoundedCornerShape(6.dp)
                                         )
                                         .clickable { onSelectEffect(fx) }
-                                        .padding(vertical = 6.dp),
+                                        .padding(vertical = 6.dp, horizontal = 2.dp)
+                                        .testTag("mic_fx_${fx.name.lowercase()}"),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
@@ -274,7 +281,7 @@ fun MicFxPanel(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 8.5.sp,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        modifier = Modifier.basicMarquee()
                                     )
                                 }
                             }
@@ -330,7 +337,7 @@ fun MicFxPanel(
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            modifier = Modifier.basicMarquee()
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -348,8 +355,7 @@ fun MicFxPanel(
                                                         color = if (isSync) Color.Black else Color.White,
                                                         fontSize = 8.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
+                                                        maxLines = 1
                                                     )
                                                 }
                                             }
@@ -358,20 +364,20 @@ fun MicFxPanel(
                                 }
                                 MicEffect.ROBOT -> {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("MODULACIÓN METÁLICA", color = DjCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("Frec: 140 Hz Ring Mod", color = DjTextMuted, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("MODULACIÓN METÁLICA", color = DjCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.basicMarquee())
+                                        Text("Frec: 140 Hz Ring Mod", color = DjTextMuted, fontSize = 8.sp, maxLines = 1, modifier = Modifier.basicMarquee())
                                     }
                                 }
                                 MicEffect.MEGAFONO -> {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("FILTRO PASA-BANDA", color = DjOrange, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("Corte: 400Hz - 3.2kHz", color = DjTextMuted, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("FILTRO PASA-BANDA", color = DjOrange, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.basicMarquee())
+                                        Text("Corte: 400Hz - 3.2kHz", color = DjTextMuted, fontSize = 8.sp, maxLines = 1, modifier = Modifier.basicMarquee())
                                     }
                                 }
                                 MicEffect.NONE -> {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("VOZ LIMPIA (BYPASS)", color = DjGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("Sin procesamiento", color = DjTextMuted, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("VOZ LIMPIA (BYPASS)", color = DjGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.basicMarquee())
+                                        Text("Sin procesamiento", color = DjTextMuted, fontSize = 8.sp, maxLines = 1, modifier = Modifier.basicMarquee())
                                     }
                                 }
                             }
@@ -384,7 +390,8 @@ fun MicFxPanel(
                                 label = "DRY / WET",
                                 displayValue = "${(state.dryWetMix * 100).toInt()}% WET",
                                 accentColor = DjGreen,
-                                size = 46.dp
+                                size = 46.dp,
+                                testTag = "mic_dry_wet_knob"
                             )
                         }
                     }

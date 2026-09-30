@@ -1,6 +1,7 @@
 package com.example.ui.panels
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -119,7 +120,10 @@ fun AdsPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Campaign,
                         contentDescription = "Anuncios",
@@ -134,7 +138,7 @@ fun AdsPanel(
                         fontSize = 12.sp,
                         letterSpacing = 0.5.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee()
                     )
                 }
 
@@ -171,7 +175,7 @@ fun AdsPanel(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
@@ -194,14 +198,13 @@ fun AdsPanel(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.weight(1f, fill = false).basicMarquee()
                                 )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "▼",
                                     color = DjCyan,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    fontSize = 10.sp
                                 )
                             }
 
@@ -211,14 +214,14 @@ fun AdsPanel(
                                 modifier = Modifier.background(DjCardDark)
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Por Tiempo (Minutos)", color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    text = { Text("Por Tiempo (Minutos)", color = Color.White) },
                                     onClick = {
                                         onIntervalModeChange(AdsIntervalMode.POR_TIEMPO)
                                         modeDropdownExpanded = false
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Por Cantidad de Canciones", color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    text = { Text("Por Cantidad de Canciones", color = Color.White) },
                                     onClick = {
                                         onIntervalModeChange(AdsIntervalMode.POR_CANCIONES)
                                         modeDropdownExpanded = false
@@ -289,7 +292,7 @@ fun AdsPanel(
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                                 val countdownText = if (isPorTiempo) {
                                     val m = state.adsCountdownSeconds / 60
@@ -304,8 +307,7 @@ fun AdsPanel(
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    maxLines = 1
                                 )
                                 Text(
                                     text = if (state.isPlayingAd) "EMITIENDO AHORA (AUDIO DUCKED)" else "AUTO-TRIGGER LISTO",
@@ -313,7 +315,7 @@ fun AdsPanel(
                                     fontSize = 8.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
                         }
@@ -342,14 +344,14 @@ fun AdsPanel(
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 10.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                                 Text(
                                     text = "Música baja al ${(state.adsDuckingLevel * 100).toInt()}% de volumen",
                                     color = DjTextMuted,
                                     fontSize = 8.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
                         }
@@ -376,7 +378,7 @@ fun AdsPanel(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.weight(1f, fill = false).basicMarquee()
                             )
                             // Botón [+ AGREGAR ANUNCIO]
                             Button(
@@ -446,7 +448,7 @@ fun AdsPanel(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            modifier = Modifier.basicMarquee()
                                         )
                                         if (item.textoLocucion.isNotBlank()) {
                                             Text(
@@ -454,7 +456,7 @@ fun AdsPanel(
                                                 color = DjCyan.copy(alpha = 0.85f),
                                                 fontSize = 9.sp,
                                                 maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                modifier = Modifier.basicMarquee()
                                             )
                                         }
                                         Text(
@@ -462,7 +464,7 @@ fun AdsPanel(
                                             color = DjTextMuted,
                                             fontSize = 8.sp,
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            modifier = Modifier.basicMarquee()
                                         )
                                     }
 
@@ -488,9 +490,7 @@ fun AdsPanel(
                                         ) {
                                             Text(
                                                 text = "✏️",
-                                                fontSize = 9.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                fontSize = 9.sp
                                             )
                                         }
 
@@ -504,9 +504,7 @@ fun AdsPanel(
                                         ) {
                                             Text(
                                                 text = "🗑️",
-                                                fontSize = 9.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                fontSize = 9.sp
                                             )
                                         }
 
@@ -522,9 +520,7 @@ fun AdsPanel(
                                                 text = if (item.activo) "ACTIVO" else "PAUSA",
                                                 color = if (item.activo) DjGreen else DjRed,
                                                 fontSize = 8.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
                                     }
@@ -557,7 +553,7 @@ fun AdsPanel(
                                 fontWeight = FontWeight.Black,
                                 fontSize = 10.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                         }
                     }
@@ -586,7 +582,7 @@ fun AdsPanel(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                         }
 
@@ -596,7 +592,7 @@ fun AdsPanel(
                         OutlinedTextField(
                             value = state.closingTimeText,
                             onValueChange = onClosingTimeChange,
-                            label = { Text("Hora de Cierre", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            label = { Text("Hora de Cierre", maxLines = 1, modifier = Modifier.basicMarquee()) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().height(52.dp).testTag("closing_time_input"),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -627,8 +623,7 @@ fun AdsPanel(
                                 text = "Anuncio de despedida al llegar hora",
                                 color = Color.White,
                                 fontSize = 9.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                lineHeight = 12.sp
                             )
                         }
 
@@ -652,8 +647,7 @@ fun AdsPanel(
                                 text = "Bloquear peticiones QR al cumplir horario",
                                 color = Color.White,
                                 fontSize = 9.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                lineHeight = 12.sp
                             )
                         }
 
@@ -671,7 +665,7 @@ fun AdsPanel(
                                 color = DjTextMuted,
                                 fontSize = 8.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                         }
                     }

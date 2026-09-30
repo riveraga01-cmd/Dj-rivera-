@@ -1,6 +1,7 @@
 package com.example.ui.panels
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -93,7 +94,10 @@ fun TtsPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.RecordVoiceOver,
                         contentDescription = "TTS",
@@ -108,7 +112,7 @@ fun TtsPanel(
                         fontSize = 12.sp,
                         letterSpacing = 0.5.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        modifier = Modifier.basicMarquee()
                     )
                 }
 
@@ -125,7 +129,7 @@ fun TtsPanel(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Black,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
                     }
                 }
@@ -152,7 +156,7 @@ fun TtsPanel(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
                         Spacer(modifier = Modifier.height(4.dp))
 
@@ -170,7 +174,7 @@ fun TtsPanel(
                                 focusedBorderColor = DjCyan,
                                 unfocusedBorderColor = DjBorder
                             ),
-                            placeholder = { Text("Escribe el anuncio o dedicatoria...", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            placeholder = { Text("Escribe el anuncio o dedicatoria...") }
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -187,7 +191,7 @@ fun TtsPanel(
                                 modifier = Modifier.weight(1f).height(28.dp).testTag("tpl_saludo_button"),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242C3E)),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
                             ) {
                                 Text(
                                     text = "SALUDO MESA",
@@ -195,7 +199,7 @@ fun TtsPanel(
                                     fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
 
@@ -206,7 +210,7 @@ fun TtsPanel(
                                 modifier = Modifier.weight(1f).height(28.dp).testTag("tpl_promo_button"),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242C3E)),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
                             ) {
                                 Text(
                                     text = "PROMO BEBIDAS",
@@ -214,7 +218,7 @@ fun TtsPanel(
                                     fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
 
@@ -225,7 +229,7 @@ fun TtsPanel(
                                 modifier = Modifier.weight(1f).height(28.dp).testTag("tpl_cierre_button"),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF242C3E)),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
                             ) {
                                 Text(
                                     text = "AVISO CIERRE",
@@ -233,7 +237,7 @@ fun TtsPanel(
                                     fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
                         }
@@ -255,7 +259,7 @@ fun TtsPanel(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.basicMarquee()
                         )
                         Spacer(modifier = Modifier.height(4.dp))
 
@@ -278,9 +282,10 @@ fun TtsPanel(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.weight(1f, fill = false).basicMarquee()
                                 )
-                                Text("▼", color = DjCyan, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("▼", color = DjCyan, fontSize = 9.sp)
                             }
 
                             DropdownMenu(
@@ -290,7 +295,7 @@ fun TtsPanel(
                             ) {
                                 state.availableVoices.forEach { voice ->
                                     DropdownMenuItem(
-                                        text = { Text(voice, color = Color.White, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        text = { Text(voice, color = Color.White, fontSize = 11.sp) },
                                         onClick = {
                                             onVoiceChange(voice)
                                             voiceMenuExpanded = false
@@ -307,8 +312,8 @@ fun TtsPanel(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Velocidad", color = DjTextMuted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${String.format("%.2f", state.ttsSpeechRate)}x", color = DjCyan, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Velocidad", color = DjTextMuted, fontSize = 9.sp, maxLines = 1, modifier = Modifier.basicMarquee())
+                            Text("${String.format("%.2f", state.ttsSpeechRate)}x", color = DjCyan, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1)
                         }
                         Slider(
                             value = state.ttsSpeechRate,
@@ -323,8 +328,8 @@ fun TtsPanel(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Tono (Pitch)", color = DjTextMuted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${String.format("%.2f", state.ttsPitch)}x", color = DjAmber, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Tono (Pitch)", color = DjTextMuted, fontSize = 9.sp, maxLines = 1, modifier = Modifier.basicMarquee())
+                            Text("${String.format("%.2f", state.ttsPitch)}x", color = DjAmber, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1)
                         }
                         Slider(
                             value = state.ttsPitch,
@@ -342,52 +347,58 @@ fun TtsPanel(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             // Botón [PREVISUALIZAR EN AUDÍFONOS (PFL)]
+                            val isPflSpeaking = state.ttsIsSpeaking && state.ttsPflActive
                             Button(
                                 onClick = onPreviewPfl,
                                 modifier = Modifier.weight(1f).height(30.dp).testTag("tts_pfl_button"),
                                 shape = RoundedCornerShape(4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF263045)),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isPflSpeaking) DjCyan else Color(0xFF263045)
+                                ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Headphones,
                                     contentDescription = "PFL",
-                                    tint = DjCyan,
+                                    tint = if (isPflSpeaking) Color.Black else DjCyan,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = "PFL CUE",
-                                    color = DjCyan,
+                                    text = if (isPflSpeaking) "DETENER PFL" else "PFL CUE",
+                                    color = if (isPflSpeaking) Color.Black else DjCyan,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 8.5.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
 
                             // Botón [EMITIR EN VIVO]
+                            val isLiveSpeaking = state.ttsIsSpeaking && !state.ttsPflActive
                             Button(
                                 onClick = onBroadcastLive,
                                 modifier = Modifier.weight(1.3f).height(30.dp).testTag("tts_live_button"),
                                 shape = RoundedCornerShape(4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = DjGreen),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isLiveSpeaking) DjRed else DjGreen
+                                ),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Send,
+                                    imageVector = if (isLiveSpeaking) Icons.Default.Campaign else Icons.Default.Send,
                                     contentDescription = "En Vivo",
-                                    tint = Color.Black,
+                                    tint = if (isLiveSpeaking) Color.White else Color.Black,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = "EMITIR EN VIVO",
-                                    color = Color.Black,
+                                    text = if (isLiveSpeaking) "DETENER EMISIÓN" else "EMITIR EN VIVO",
+                                    color = if (isLiveSpeaking) Color.White else Color.Black,
                                     fontWeight = FontWeight.Black,
                                     fontSize = 8.5.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
 
@@ -397,7 +408,7 @@ fun TtsPanel(
                                 modifier = Modifier.weight(1f).height(30.dp).testTag("tts_save_ad_button"),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = DjAmber),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Save,
@@ -412,7 +423,7 @@ fun TtsPanel(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 8.sp,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    modifier = Modifier.basicMarquee()
                                 )
                             }
                         }

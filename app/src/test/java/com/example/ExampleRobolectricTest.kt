@@ -39,5 +39,59 @@ class ExampleRobolectricTest {
     assertEquals("http://192.168.1.50:8080/pedir", state.qrServerUrl)
     assertEquals(MicEffect.NONE, state.selectedMicFx)
     assertEquals(TransitionType.CROSSFADE, state.autoMixTransitionType)
+    assertEquals(8f, state.autoMixDurationSec)
+    assertEquals(false, state.autoMixActive)
+  }
+
+  @Test
+  fun `verify mic fx and automix transitions enum definitions`() {
+    val effects = MicEffect.values()
+    assertEquals(true, effects.contains(MicEffect.ROBOT))
+    assertEquals(true, effects.contains(MicEffect.MEGAFONO))
+    assertEquals(true, effects.contains(MicEffect.REVERB))
+    assertEquals(true, effects.contains(MicEffect.ECHO_DELAY))
+
+    val transitions = TransitionType.values()
+    assertEquals(true, transitions.contains(TransitionType.CROSSFADE))
+    assertEquals(true, transitions.contains(TransitionType.BEATMATCH_SYNC))
+    assertEquals(true, transitions.contains(TransitionType.FADE_OUT_IN))
+    assertEquals(true, transitions.contains(TransitionType.CORTE_DIRECTO))
+  }
+
+  @Test
+  fun `verify automix remaining time threshold logic`() {
+    val durationMs = 60000L
+    val positionMs = 52000L
+    val mixDurationSec = 8f
+    val mixDurationMs = (mixDurationSec * 1000f).toLong()
+
+    val remainingMs = durationMs - positionMs
+    assertEquals(8000L, remainingMs)
+    assertEquals(mixDurationMs, remainingMs)
+
+    // Trigger condition is met when remainingMs in 1L..mixDurationMs
+    val shouldTrigger = remainingMs in 1L..mixDurationMs
+    assertEquals(true, shouldTrigger)
+  }
+
+  @Test
+  fun `verify mic dsp engine initial parameters and effect mapping`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    var receivedVu = 0f
+    val engine = RealtimeMicDspEngine(context) { vu -> receivedVu = vu }
+
+    assertEquals(false, engine.isEnabled)
+    assertEquals(0.80f, engine.micGain, 0.01f)
+    assertEquals(0.50f, engine.dryWetMix, 0.01f)
+    assertEquals(MicEffect.NONE, engine.selectedEffect)
+
+    engine.selectedEffect = MicEffect.ROBOT
+    assertEquals(MicEffect.ROBOT, engine.selectedEffect)
+
+    engine.dryWetMix = 0.75f
+    assertEquals(0.75f, engine.dryWetMix, 0.01f)
+
+    engine.micGain = 0.90f
+    assertEquals(0.90f, engine.micGain, 0.01f)
   }
 }

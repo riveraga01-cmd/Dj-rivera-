@@ -83,9 +83,9 @@ data class DeckState(
     val bpm: Int = 128,
     val musicalKey: String = "8A / Am",
     val gain: Float = 0.8f,
-    val eqLow: Float = 0f,
-    val eqMid: Float = 0f,
-    val eqHigh: Float = 0f,
+    val eqLow: Float = 0.5f,
+    val eqMid: Float = 0.5f,
+    val eqHigh: Float = 0.5f,
     val faderVolume: Float = 0.9f,
     val cueActive: Boolean = false,
     val pitchPercent: Float = 0f,
@@ -198,5 +198,8 @@ data class DjConsoleState(
     // Music Library Section
     val librarySongs: List<Cancion> = emptyList(),
     val librarySelectedGenre: String = "TODOS",
-    val librarySearchQuery: String = ""
+    val librarySearchQuery: String = "",
+    val isScanningLocalMedia: Boolean = false,
+    val localPermissionDenied: Boolean = false,
+    val localSongsCount: Int = 0
 )

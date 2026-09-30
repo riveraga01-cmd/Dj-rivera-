@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -67,7 +68,7 @@ val DjBorder = Color(0xFF2D3344)
 val DjTextMuted = Color(0xFF8E95A5)
 
 /**
- * 1. ROTARY KNOB: Hardware-style rotary dial with interactive drag, neon arc and readout
+ * 1. ROTARY KNOB: Hardware-style rotary dial with vertical drag gestures (-135° to +135°), neon arc and readout
  */
 @Composable
 fun RotaryKnob(
@@ -82,8 +83,8 @@ fun RotaryKnob(
     bipolar: Boolean = false,
     testTag: String = "rotary_knob"
 ) {
-    val totalRange = (range.endInclusive - range.start).coerceAtLeast(0.001f)
-    val normalizedValue = ((value - range.start) / totalRange).coerceIn(0f, 1f)
+    val totalRange = (range.endInclusive - range.start).coerceAtLeast(0.0001f)
+    val normalizedValue = ((value - range.start) / totalRange).coerceIn(0.0f, 1.0f)
 
     Column(
         modifier = modifier.testTag(testTag),
@@ -96,7 +97,7 @@ fun RotaryKnob(
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                modifier = Modifier.basicMarquee()
             )
             Spacer(modifier = Modifier.height(2.dp))
         }
@@ -104,10 +105,15 @@ fun RotaryKnob(
         Box(
             modifier = Modifier
                 .size(size)
-                .pointerInput(range) {
+                .pointerInput(range, value) {
                     detectVerticalDragGestures { _, dragAmount ->
-                        val delta = -dragAmount / 180f
-                        val newValue = (value + delta * totalRange).coerceIn(range.start, range.endInclusive)
+                        // Deslizar hacia arriba (dragAmount negativo) incrementa el valor suavemente
+                        // Deslizar hacia abajo (dragAmount positivo) decrementa el valor
+                        // Sensibilidad baja (0.004f) y coerceIn(0.0f, 1.0f)
+                        val delta = -dragAmount * 0.004f
+                        val currentNorm = ((value - range.start) / totalRange).coerceIn(0.0f, 1.0f)
+                        val newNorm = (currentNorm + delta).coerceIn(0.0f, 1.0f)
+                        val newValue = range.start + newNorm * totalRange
                         onValueChange(newValue)
                     }
                 },
@@ -118,11 +124,14 @@ fun RotaryKnob(
                 val radius = (this.size.minDimension - strokeW * 2) / 2
                 val center = Offset(this.size.width / 2, this.size.height / 2)
 
-                // Arc angles: 135 deg to 405 deg (270 degrees sweep)
+                // Ángulo de rotación visual de -135° a +135° (270° de barrido total)
+                // En Canvas estándar: 270° es el cenit (arriba).
+                // -135° desde el cenit = 135° (inicio inferior izquierdo)
+                // +135° desde el cenit = 405° (fin inferior derecho)
                 val startAngle = 135f
                 val sweepAngle = 270f
 
-                // Background track arc
+                // Track arc de fondo
                 drawArc(
                     color = Color(0xFF282D3C),
                     startAngle = startAngle,
@@ -133,9 +142,9 @@ fun RotaryKnob(
                     style = Stroke(width = strokeW, cap = StrokeCap.Round)
                 )
 
-                // Active glowing arc
+                // Arco brillante activo
                 if (bipolar) {
-                    val centerAngle = startAngle + sweepAngle / 2
+                    val centerAngle = startAngle + sweepAngle / 2f
                     val currentAngleSweep = (normalizedValue - 0.5f) * sweepAngle
                     drawArc(
                         color = accentColor,
@@ -158,7 +167,7 @@ fun RotaryKnob(
                     )
                 }
 
-                // Inner knob body with metallic brushed bevel
+                // Cuerpo central del knob con efecto cepillado metálico
                 val knobRadius = radius * 0.76f
                 drawCircle(
                     brush = Brush.radialGradient(
@@ -176,8 +185,9 @@ fun RotaryKnob(
                     style = Stroke(width = 1.5f)
                 )
 
-                // Pointer notch
-                val pointerAngleDeg = startAngle + sweepAngle * normalizedValue
+                // Muesca / puntero: Mapeo de valor 0.0 - 1.0 a rotación visual exacta de -135° a +135°
+                val rotationDeg = -135f + normalizedValue * 270f
+                val pointerAngleDeg = 270f + rotationDeg
                 val pointerAngleRad = pointerAngleDeg * (PI / 180f)
                 val innerPoint = Offset(
                     center.x + (knobRadius * 0.40f) * cos(pointerAngleRad).toFloat(),
@@ -206,7 +216,7 @@ fun RotaryKnob(
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                modifier = Modifier.basicMarquee()
             )
         }
     }
@@ -238,7 +248,7 @@ fun VerticalFader(
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                modifier = Modifier.basicMarquee()
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -521,7 +531,7 @@ fun StatusSwitch(
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                modifier = Modifier.basicMarquee()
             )
         }
     }

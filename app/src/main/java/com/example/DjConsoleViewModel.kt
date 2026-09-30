@@ -3,6 +3,7 @@ package com.example
 import android.app.Application
 import android.content.ContentUris
 import android.provider.MediaStore
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ui.components.DjAmber
@@ -30,16 +31,22 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
     val audioEngine = DualExoPlayerEngine(application)
     val firebaseRepo = FirebaseRepository()
     val ttsManager: EmotionalTtsManager
+    val micDspEngine: RealtimeMicDspEngine
 
     private val _state = MutableStateFlow(DjConsoleState())
     val state: StateFlow<DjConsoleState> = _state.asStateFlow()
 
     private var countdownJob: Job? = null
     private var automixJob: Job? = null
+    private var isAutomixTransitioning = false
 
     init {
         ttsManager = EmotionalTtsManager(application) { isDucked ->
             updateDuckingState(isDucked, if (isDucked) _state.value.adsDuckingLevel else 1.0f)
+        }
+
+        micDspEngine = RealtimeMicDspEngine(application) { vuLevel ->
+            _state.update { it.copy(micVuLevel = vuLevel) }
         }
 
         initializeDefaultPads()
@@ -48,6 +55,19 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         startConsoleMonitoringLoop()
         startFirestoreSync()
         startUsbMidiListener()
+
+        // Sync initial faders, crossfader, volume, and EQ to the audio engine
+        audioEngine.setCrossfader(_state.value.crossfaderPosition)
+        audioEngine.setDeckFader(DeckId.DECK_A, _state.value.deckA.faderVolume)
+        audioEngine.setDeckFader(DeckId.DECK_B, _state.value.deckB.faderVolume)
+        audioEngine.setMasterVolume(_state.value.masterVolume)
+        audioEngine.setDeckEq(DeckId.DECK_A, _state.value.deckA.eqLow, _state.value.deckA.eqMid, _state.value.deckA.eqHigh)
+        audioEngine.setDeckEq(DeckId.DECK_B, _state.value.deckB.eqLow, _state.value.deckB.eqMid, _state.value.deckB.eqHigh)
+
+        // Sync initial TTS parameters
+        ttsManager.setSpeechRate(_state.value.ttsSpeechRate)
+        ttsManager.setPitch(_state.value.ttsPitch)
+        ttsManager.applyVoicePreset(_state.value.selectedVoice)
     }
 
     private fun startUsbMidiListener() {
@@ -218,9 +238,9 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
                     updateAdsCountdown()
                 }
 
-                // AutoMix transition check
-                if (tick % 10 == 0 && _state.value.autoMixActive) {
-                    updateAutoMixCountdown()
+                // AutoMix transition check: monitors active Deck position and executes transitions
+                if (_state.value.autoMixActive) {
+                    checkAutomixEngine()
                 }
             }
         }
@@ -242,14 +262,44 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun updateAutoMixCountdown() {
-        _state.update { current ->
-            val next = current.autoMixCountdownSec - 1
-            if (next <= 0) {
-                skipAutoMixTrack()
-                current.copy(autoMixCountdownSec = (current.autoMixDurationSec * 2).toInt().coerceAtLeast(10))
-            } else {
-                current.copy(autoMixCountdownSec = next)
+    private fun checkAutomixEngine() {
+        if (isAutomixTransitioning) return
+
+        val activeDeckId = audioEngine.activeDeck.value
+        val (activeDeckState, otherDeckId) = if (activeDeckId == DeckId.DECK_A) {
+            Pair(_state.value.deckA, DeckId.DECK_B)
+        } else {
+            Pair(_state.value.deckB, DeckId.DECK_A)
+        }
+
+        // If neither deck is playing, start playback on active deck
+        if (!activeDeckState.isPlaying && !_state.value.deckA.isPlaying && !_state.value.deckB.isPlaying) {
+            if (activeDeckState.song != null) {
+                audioEngine.playDeck(activeDeckId)
+            } else if (_state.value.librarySongs.isNotEmpty()) {
+                val song = _state.value.librarySongs.first()
+                audioEngine.loadSong(activeDeckId, song)
+                audioEngine.playDeck(activeDeckId)
+            }
+            return
+        }
+
+        val durMs = activeDeckState.durationMs
+        val posMs = activeDeckState.positionMs
+
+        if (durMs > 3000L && activeDeckState.isPlaying) {
+            val remainingMs = durMs - posMs
+            val mixDurationSec = _state.value.autoMixDurationSec
+            val mixDurationMs = (mixDurationSec * 1000f).toLong()
+
+            val timeUntilMixMs = remainingMs - mixDurationMs
+            val countdownSec = (timeUntilMixMs / 1000f).toInt().coerceAtLeast(0)
+
+            _state.update { it.copy(autoMixCountdownSec = countdownSec) }
+
+            // When remaining time <= mixDuration, trigger transition!
+            if (remainingMs in 1L..mixDurationMs && !isAutomixTransitioning) {
+                executeAutomixRoutine(fromDeck = activeDeckId, toDeck = otherDeckId)
             }
         }
     }
@@ -347,7 +397,7 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setDeckEq(deckId: DeckId, low: Float, mid: Float, high: Float) {
-        audioEngine.setEq(low, mid, high)
+        audioEngine.setDeckEq(deckId, low, mid, high)
         _state.update { current ->
             if (deckId == DeckId.DECK_A) {
                 current.copy(deckA = current.deckA.copy(eqLow = low, eqMid = mid, eqHigh = high))
@@ -570,42 +620,65 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // 3. Mic FX Panel Functions
+    // 3. Mic FX Panel Functions (Real-time AudioRecord DSP)
     fun setMicOn(on: Boolean) {
         _state.update { it.copy(micOn = on) }
+        updateMicDspEngineState()
     }
 
     fun setTalkOver(active: Boolean) {
         _state.update { it.copy(talkOverActive = active) }
         updateDuckingState(active, if (active) 0.20f else 1.0f)
+        updateMicDspEngineState()
+    }
+
+    private fun updateMicDspEngineState() {
+        val shouldCapture = _state.value.micOn || _state.value.talkOverActive
+        if (shouldCapture && !micDspEngine.isEnabled) {
+            micDspEngine.start()
+        } else if (!shouldCapture && micDspEngine.isEnabled) {
+            micDspEngine.stop()
+        }
     }
 
     fun setMicGain(gain: Float) {
-        _state.update { it.copy(micGain = gain) }
+        val clamped = gain.coerceIn(0f, 1f)
+        _state.update { it.copy(micGain = clamped) }
+        micDspEngine.micGain = clamped
     }
 
     fun setMicEffect(fx: MicEffect) {
         _state.update { it.copy(selectedMicFx = fx) }
+        micDspEngine.selectedEffect = fx
     }
 
     fun setPitchShiftValue(value: Float) {
-        _state.update { it.copy(pitchShiftValue = value) }
+        val clamped = value.coerceIn(-12f, 12f)
+        _state.update { it.copy(pitchShiftValue = clamped) }
+        micDspEngine.pitchShiftValue = clamped
     }
 
     fun setReverbIntensity(value: Float) {
-        _state.update { it.copy(reverbIntensity = value) }
+        val clamped = value.coerceIn(0f, 1f)
+        _state.update { it.copy(reverbIntensity = clamped) }
+        micDspEngine.reverbIntensity = clamped
     }
 
     fun setEchoFeedback(value: Float) {
-        _state.update { it.copy(echoFeedback = value) }
+        val clamped = value.coerceIn(0f, 0.95f)
+        _state.update { it.copy(echoFeedback = clamped) }
+        micDspEngine.echoFeedback = clamped
     }
 
     fun setEchoBpmSync(sync: String) {
         _state.update { it.copy(echoBpmSync = sync) }
+        micDspEngine.echoBpmSync = sync
     }
 
     fun setDryWetMix(mix: Float) {
-        _state.update { it.copy(dryWetMix = mix) }
+        val clamped = mix.coerceIn(0f, 1f)
+        _state.update { it.copy(dryWetMix = clamped) }
+        micDspEngine.dryWetMix = clamped
     }
 
     // 4. TTS Panel Functions
@@ -615,34 +688,90 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setTtsVoice(voice: String) {
         _state.update { it.copy(selectedVoice = voice) }
+        ttsManager.applyVoicePreset(voice)
     }
 
     fun setTtsRate(rate: Float) {
-        _state.update { it.copy(ttsSpeechRate = rate) }
+        val clamped = rate.coerceIn(0.5f, 2.0f)
+        _state.update { it.copy(ttsSpeechRate = clamped) }
+        ttsManager.setSpeechRate(clamped)
     }
 
     fun setTtsPitch(pitch: Float) {
-        _state.update { it.copy(ttsPitch = pitch) }
+        val clamped = pitch.coerceIn(0.5f, 2.0f)
+        _state.update { it.copy(ttsPitch = clamped) }
+        ttsManager.setPitch(clamped)
     }
 
     fun previewTtsPfl() {
-        _state.update { it.copy(ttsIsSpeaking = true, ttsPflActive = true) }
-        ttsManager.speak(_state.value.ttsMessage, EmocionVoz.EMOCIONADO)
-        viewModelScope.launch {
-            delay(3500L)
+        val message = _state.value.ttsMessage.trim()
+        if (message.isEmpty()) return
+
+        // Toggle: If currently playing PFL preview, clicking again stops it
+        if (_state.value.ttsIsSpeaking && _state.value.ttsPflActive) {
+            ttsManager.stop()
             _state.update { it.copy(ttsIsSpeaking = false, ttsPflActive = false) }
+            return
         }
+
+        // If speaking live, cancel live first
+        if (_state.value.ttsIsSpeaking) {
+            ttsManager.stop()
+            updateDuckingState(false, 1.0f)
+        }
+
+        _state.update { it.copy(ttsIsSpeaking = true, ttsPflActive = true) }
+
+        ttsManager.speakLocutorTts(
+            text = message,
+            selectedVoiceName = _state.value.selectedVoice,
+            sliderRate = _state.value.ttsSpeechRate,
+            sliderPitch = _state.value.ttsPitch,
+            isLive = false, // Audífonos / PFL: pre-escucha sin atenuar la música de los Decks
+            onStart = {
+                _state.update { it.copy(ttsIsSpeaking = true, ttsPflActive = true) }
+            },
+            onFinish = {
+                _state.update { it.copy(ttsIsSpeaking = false, ttsPflActive = false) }
+            }
+        )
     }
 
     fun broadcastTtsLive() {
+        val message = _state.value.ttsMessage.trim()
+        if (message.isEmpty()) return
+
+        // Toggle: If currently broadcasting live, clicking again cuts locution and restores music
+        if (_state.value.ttsIsSpeaking && !_state.value.ttsPflActive) {
+            ttsManager.stop()
+            updateDuckingState(false, 1.0f)
+            _state.update { it.copy(ttsIsSpeaking = false, ttsPflActive = false) }
+            return
+        }
+
+        // If speaking in PFL, stop PFL first
+        if (_state.value.ttsIsSpeaking) {
+            ttsManager.stop()
+        }
+
         _state.update { it.copy(ttsIsSpeaking = true, ttsPflActive = false) }
         updateDuckingState(true, _state.value.adsDuckingLevel)
-        ttsManager.speak(_state.value.ttsMessage, EmocionVoz.EMOCIONADO)
-        viewModelScope.launch {
-            delay(4000L)
-            _state.update { it.copy(ttsIsSpeaking = false) }
-            updateDuckingState(false, 1.0f)
-        }
+
+        ttsManager.speakLocutorTts(
+            text = message,
+            selectedVoiceName = _state.value.selectedVoice,
+            sliderRate = _state.value.ttsSpeechRate,
+            sliderPitch = _state.value.ttsPitch,
+            isLive = true, // Al aire: Audio Ducking automático sobre los Decks A y B
+            onStart = {
+                _state.update { it.copy(ttsIsSpeaking = true, ttsPflActive = false) }
+                updateDuckingState(true, _state.value.adsDuckingLevel)
+            },
+            onFinish = {
+                _state.update { it.copy(ttsIsSpeaking = false, ttsPflActive = false) }
+                updateDuckingState(false, 1.0f)
+            }
+        )
     }
 
     fun saveTtsToAds() {
@@ -653,7 +782,18 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
     // 5. AutoMix Panel Functions
     fun setAutoMixActive(active: Boolean) {
         _state.update { it.copy(autoMixActive = active) }
-        audioEngine.setAutoDj(active)
+        if (active) {
+            // If neither deck is currently playing, start playing Deck A
+            if (!_state.value.deckA.isPlaying && !_state.value.deckB.isPlaying) {
+                if (_state.value.deckA.song != null) {
+                    audioEngine.playDeck(DeckId.DECK_A)
+                } else if (_state.value.librarySongs.isNotEmpty()) {
+                    val firstSong = _state.value.librarySongs.first()
+                    audioEngine.loadSong(DeckId.DECK_A, firstSong)
+                    audioEngine.playDeck(DeckId.DECK_A)
+                }
+            }
+        }
     }
 
     fun setAutoMixTransitionType(type: TransitionType) {
@@ -677,11 +817,66 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun skipAutoMixTrack() {
-        val targetDeck = if (audioEngine.activeDeck.value == DeckId.DECK_A) DeckId.DECK_B else DeckId.DECK_A
-        audioEngine.triggerAutoCrossfade(fromDeck = audioEngine.activeDeck.value, toDeck = targetDeck)
+        val currentActive = audioEngine.activeDeck.value
+        val targetDeck = if (currentActive == DeckId.DECK_A) DeckId.DECK_B else DeckId.DECK_A
+        executeAutomixRoutine(fromDeck = currentActive, toDeck = targetDeck)
+    }
+
+    private fun executeAutomixRoutine(fromDeck: DeckId, toDeck: DeckId) {
+        if (isAutomixTransitioning) return
+        isAutomixTransitioning = true
+
+        val songToLoad = _state.value.nextSong ?: getNextAutomixSong()
+        if (songToLoad != null) {
+            audioEngine.loadSong(toDeck, songToLoad)
+            audioEngine.seekDeck(toDeck, 0f)
+        }
 
         if (_state.value.autoMixInsertSoundFx) {
-            triggerSamplerPad(4) // Scratch
+            audioEngine.playDjPad(DjPadEffect.SWEEP)
+            triggerSamplerPad(4) // Scratch effect pad
+        }
+
+        val transitionType = _state.value.autoMixTransitionType
+        val mixDuration = _state.value.autoMixDurationSec
+        val harmonicLock = _state.value.autoMixHarmonicKeyLock
+
+        audioEngine.executeAutomixTransition(
+            fromDeck = fromDeck,
+            toDeck = toDeck,
+            type = transitionType,
+            durationSec = mixDuration,
+            harmonicKeyLock = harmonicLock
+        ) {
+            isAutomixTransitioning = false
+
+            // Rotate queue to next song
+            val nextUpcoming = getNextAutomixSong(after = songToLoad)
+            _state.update { current ->
+                current.copy(
+                    nextSong = nextUpcoming,
+                    nextSongBpm = (100..132).random(),
+                    nextSongKey = listOf("8A / Am", "9A / Em", "7B / F", "4A / Fm", "11B / A").random(),
+                    autoMixCountdownSec = (current.autoMixDurationSec * 2).toInt().coerceAtLeast(10)
+                )
+            }
+
+            if (_state.value.autoMixInsertAds && _state.value.adsActive) {
+                playAdNow()
+            }
+        }
+    }
+
+    private fun getNextAutomixSong(after: Cancion? = null): Cancion? {
+        val songs = _state.value.librarySongs
+        if (songs.isEmpty()) return null
+        if (after == null) return songs.firstOrNull()
+
+        val idx = songs.indexOfFirst { it.id == after.id }
+        return if (idx >= 0 && idx < songs.size - 1) {
+            songs[idx + 1]
+        } else {
+            songs.firstOrNull()
         }
     }
 
@@ -743,7 +938,7 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(samplerDuckingEnabled = enabled) }
     }
 
-    // Library Filter
+    // Library Filter & MediaStore Local Audio Scanning
     fun setLibraryGenre(genre: String) {
         _state.update { it.copy(librarySelectedGenre = genre) }
     }
@@ -752,13 +947,131 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(librarySearchQuery = query) }
     }
 
+    fun importSongsFromJson(jsonStr: String): Result<Int> {
+        return try {
+            val fallbackUri = _state.value.librarySongs.firstOrNull()?.uri ?: ""
+            val parsedSongs = SongJsonParser.parse(jsonStr, fallbackUri)
+            if (parsedSongs.isEmpty()) {
+                return Result.failure(IllegalArgumentException("No se encontraron canciones válidas en el JSON."))
+            }
+
+            _state.update { current ->
+                val existingIds = current.librarySongs.map { it.id }.toSet()
+                val uniqueNewSongs = parsedSongs.filter { it.id !in existingIds }
+                current.copy(librarySongs = current.librarySongs + uniqueNewSongs)
+            }
+            Result.success(parsedSongs.size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun setLocalPermissionDenied(denied: Boolean) {
+        _state.update { it.copy(localPermissionDenied = denied, isScanningLocalMedia = false) }
+    }
+
+    fun scanMediaStoreMusic() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _state.update { it.copy(isScanningLocalMedia = true, localPermissionDenied = false) }
+            try {
+                val context = getApplication<Application>()
+                val projection = arrayOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.TITLE,
+                    MediaStore.Audio.Media.ARTIST,
+                    MediaStore.Audio.Media.DURATION,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.DATA
+                )
+
+                // Query external audio media flagged as music
+                val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+                val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
+
+                val cursor = context.contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    null,
+                    sortOrder
+                )
+
+                val localSongs = mutableListOf<Cancion>()
+                val validExtensions = listOf(".mp3", ".wav", ".aac")
+
+                cursor?.use { c ->
+                    val idCol = c.getColumnIndex(MediaStore.Audio.Media._ID)
+                    val titleCol = c.getColumnIndex(MediaStore.Audio.Media.TITLE)
+                    val artistCol = c.getColumnIndex(MediaStore.Audio.Media.ARTIST)
+                    val durCol = c.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                    val nameCol = c.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
+                    val dataCol = c.getColumnIndex(MediaStore.Audio.Media.DATA)
+
+                    while (c.moveToNext()) {
+                        val id = if (idCol >= 0) c.getLong(idCol) else continue
+                        val displayName = if (nameCol >= 0) c.getString(nameCol) ?: "" else ""
+                        val dataPath = if (dataCol >= 0) c.getString(dataCol) ?: "" else ""
+
+                        // Filter valid audio files (.mp3, .wav, .aac)
+                        val isValidAudio = validExtensions.any { ext ->
+                            displayName.endsWith(ext, ignoreCase = true) || dataPath.endsWith(ext, ignoreCase = true)
+                        }
+
+                        if (!isValidAudio && displayName.isNotBlank()) {
+                            continue
+                        }
+
+                        val rawTitle = if (titleCol >= 0) c.getString(titleCol) else null
+                        val cleanTitle = if (!rawTitle.isNullOrBlank()) rawTitle
+                            else if (displayName.isNotBlank()) displayName.substringBeforeLast(".")
+                            else "Pista Local $id"
+
+                        val rawArtist = if (artistCol >= 0) c.getString(artistCol) else null
+                        val cleanArtist = if (!rawArtist.isNullOrBlank() && rawArtist != "<unknown>") rawArtist else "Archivo Local"
+
+                        val duration = if (durCol >= 0) c.getLong(durCol) else 0L
+
+                        val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+
+                        localSongs.add(
+                            Cancion(
+                                id = "local_$id",
+                                titulo = cleanTitle,
+                                artista = cleanArtist,
+                                genero = "Local",
+                                duracionMs = duration.coerceAtLeast(1000L),
+                                uri = contentUri.toString()
+                            )
+                        )
+                    }
+                }
+
+                _state.update { current ->
+                    val nonLocal = current.librarySongs.filter { it.genero != "Local" }
+                    current.copy(
+                        librarySongs = nonLocal + localSongs,
+                        librarySelectedGenre = "Local",
+                        isScanningLocalMedia = false,
+                        localPermissionDenied = false,
+                        localSongsCount = localSongs.size
+                    )
+                }
+                Log.d("DjConsoleViewModel", "MediaStore scan completed. Found ${localSongs.size} local audio files.")
+            } catch (e: Exception) {
+                Log.e("DjConsoleViewModel", "Error scanning MediaStore: ${e.message}", e)
+                _state.update { it.copy(isScanningLocalMedia = false) }
+            }
+        }
+    }
+
     private fun updateDuckingState(isDucked: Boolean, multiplier: Float) {
         _state.update { it.copy(activeDucking = isDucked, duckingMultiplier = multiplier) }
-        audioEngine.setDucking(isDucked)
+        audioEngine.setDucking(isDucked, multiplier)
     }
 
     override fun onCleared() {
         super.onCleared()
+        micDspEngine.stop()
         audioEngine.release()
         ttsManager.release()
         firebaseRepo.release()
