@@ -94,4 +94,25 @@ class ExampleRobolectricTest {
     engine.micGain = 0.90f
     assertEquals(0.90f, engine.micGain, 0.01f)
   }
+
+  @Test
+  fun `verify tts voice preset configuration and male female detection`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val ttsManager = EmotionalTtsManager(context) { /* no-op ducking */ }
+
+    val locutorPreset = ttsManager.getPresetConfig("Español Latino (Locutor Profesional)")
+    assertEquals(false, locutorPreset.isFemale)
+    assertEquals(0.95f, locutorPreset.basePitch, 0.01f)
+
+    val femeninaPreset = ttsManager.getPresetConfig("Español Latino (Femenino Enérgico)")
+    assertEquals(true, femeninaPreset.isFemale)
+    assertEquals(1.28f, femeninaPreset.basePitch, 0.01f)
+
+    val nightclubPreset = ttsManager.getPresetConfig("Español España (DJ Nightclub)")
+    assertEquals(false, nightclubPreset.isFemale)
+
+    val neonPreset = ttsManager.getPresetConfig("Voz Modulada Neón (Deep Bass)")
+    assertEquals(false, neonPreset.isFemale)
+    assertEquals(0.65f, neonPreset.basePitch, 0.01f)
+  }
 }

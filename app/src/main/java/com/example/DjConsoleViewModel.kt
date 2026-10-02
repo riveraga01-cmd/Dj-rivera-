@@ -2,7 +2,11 @@ package com.example
 
 import android.app.Application
 import android.content.ContentUris
+import android.content.Intent
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -947,22 +951,76 @@ class DjConsoleViewModel(application: Application) : AndroidViewModel(applicatio
         _state.update { it.copy(librarySearchQuery = query) }
     }
 
-    fun importSongsFromJson(jsonStr: String): Result<Int> {
-        return try {
-            val fallbackUri = _state.value.librarySongs.firstOrNull()?.uri ?: ""
-            val parsedSongs = SongJsonParser.parse(jsonStr, fallbackUri)
-            if (parsedSongs.isEmpty()) {
-                return Result.failure(IllegalArgumentException("No se encontraron canciones válidas en el JSON."))
+    fun importSelectedAudioUris(uris: List<Uri>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val imported = mutableListOf<Cancion>()
+
+            for (uri in uris) {
+                try {
+                    try {
+                        context.contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: Exception) {}
+
+                    var displayName = "Canción Local"
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (cursor.moveToFirst() && nameIdx != -1) {
+                            displayName = cursor.getString(nameIdx) ?: "Canción Local"
+                        }
+                    }
+
+                    var title = displayName.substringBeforeLast(".")
+                    var artist = "Archivo Local"
+                    var durationMs = 180000L
+
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(context, uri)
+                        val metaTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                        val metaArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                        val metaDur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+
+                        if (!metaTitle.isNullOrBlank()) title = metaTitle
+                        if (!metaArtist.isNullOrBlank()) artist = metaArtist
+                        metaDur?.toLongOrNull()?.let { if (it > 0) durationMs = it }
+                    } catch (e: Exception) {
+                        Log.w("DjConsoleViewModel", "Error extracting metadata from uri $uri: ${e.message}")
+                    } finally {
+                        try { retriever.release() } catch (_: Exception) {}
+                    }
+
+                    imported.add(
+                        Cancion(
+                            id = "saf_${UUID.randomUUID().toString().replace("-", "").take(8)}",
+                            titulo = title,
+                            artista = artist,
+                            genero = "Local",
+                            duracionMs = durationMs,
+                            uri = uri.toString()
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.e("DjConsoleViewModel", "Error importing audio uri $uri: ${e.message}", e)
+                }
             }
 
-            _state.update { current ->
-                val existingIds = current.librarySongs.map { it.id }.toSet()
-                val uniqueNewSongs = parsedSongs.filter { it.id !in existingIds }
-                current.copy(librarySongs = current.librarySongs + uniqueNewSongs)
+            if (imported.isNotEmpty()) {
+                _state.update { current ->
+                    val existingUris = current.librarySongs.map { it.uri }.toSet()
+                    val uniqueNew = imported.filter { it.uri !in existingUris }
+                    val updatedList = current.librarySongs + uniqueNew
+                    val localCount = updatedList.count { it.genero == "Local" }
+                    current.copy(
+                        librarySongs = updatedList,
+                        localSongsCount = localCount,
+                        librarySelectedGenre = "Local"
+                    )
+                }
             }
-            Result.success(parsedSongs.size)
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 

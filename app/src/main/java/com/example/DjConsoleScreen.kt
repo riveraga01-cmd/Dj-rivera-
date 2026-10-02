@@ -43,8 +43,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
@@ -135,13 +133,31 @@ fun DjConsoleScreen(
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
 
+    val audioFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (!uris.isNullOrEmpty()) {
+            viewModel.importSelectedAudioUris(uris)
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             viewModel.scanMediaStoreMusic()
+            audioFilePickerLauncher.launch(arrayOf("audio/*"))
         } else {
             viewModel.setLocalPermissionDenied(true)
+        }
+    }
+
+    val onPickAudioFiles: () -> Unit = {
+        val hasPermission = ContextCompat.checkSelfPermission(context, audioPermission) == PackageManager.PERMISSION_GRANTED
+        if (hasPermission) {
+            audioFilePickerLauncher.launch(arrayOf("audio/*"))
+        } else {
+            permissionLauncher.launch(audioPermission)
         }
     }
 
@@ -155,12 +171,7 @@ fun DjConsoleScreen(
     }
 
     val onScanLocalMusic: () -> Unit = {
-        val hasPermission = ContextCompat.checkSelfPermission(context, audioPermission) == PackageManager.PERMISSION_GRANTED
-        if (hasPermission) {
-            viewModel.scanMediaStoreMusic()
-        } else {
-            permissionLauncher.launch(audioPermission)
-        }
+        onPickAudioFiles()
     }
 
     Surface(
@@ -337,20 +348,13 @@ fun DjConsoleScreen(
                 onSearchChange = { viewModel.setLibrarySearch(it) },
                 onSelectGenre = { genre ->
                     if (genre == "Local") {
-                        val hasPermission = ContextCompat.checkSelfPermission(context, audioPermission) == PackageManager.PERMISSION_GRANTED
-                        if (hasPermission) {
-                            viewModel.setLibraryGenre("Local")
-                            viewModel.scanMediaStoreMusic()
-                        } else {
-                            viewModel.setLibraryGenre("Local")
-                            permissionLauncher.launch(audioPermission)
-                        }
+                        viewModel.setLibraryGenre("Local")
+                        onPickAudioFiles()
                     } else {
                         viewModel.setLibraryGenre(genre)
                     }
                 },
-                onScanLocalMusic = onScanLocalMusic,
-                onImportSongsJson = { viewModel.importSongsFromJson(it) },
+                onPickAudioFiles = onPickAudioFiles,
                 onLoadToDeckA = { viewModel.loadSongToDeck(it, DeckId.DECK_A) },
                 onLoadToDeckB = { viewModel.loadSongToDeck(it, DeckId.DECK_B) }
             )
@@ -1054,12 +1058,10 @@ fun LowerLibrarySection(
     state: DjConsoleState,
     onSearchChange: (String) -> Unit,
     onSelectGenre: (String) -> Unit,
-    onScanLocalMusic: () -> Unit,
-    onImportSongsJson: (String) -> Result<Int>,
+    onPickAudioFiles: () -> Unit,
     onLoadToDeckA: (Cancion) -> Unit,
     onLoadToDeckB: (Cancion) -> Unit
 ) {
-    var showImportDialog by remember { mutableStateOf(false) }
     var importStatusMessage by remember { mutableStateOf<String?>(null) }
 
     val baseGenres = listOf("TODOS", "Cumbia", "Salsa", "Electrónica", "Bachata", "Urbano", "Merengue")
@@ -1114,26 +1116,26 @@ fun LowerLibrarySection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Botón Importar JSON
+                    // Botón Selector de Archivos Nativo (Storage Access Framework)
                     Button(
-                        onClick = { showImportDialog = true },
+                        onClick = onPickAudioFiles,
                         modifier = Modifier
                             .height(38.dp)
-                            .testTag("import_json_button"),
+                            .testTag("load_music_button"),
                         shape = RoundedCornerShape(6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B2232)),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DjCyan),
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.DataObject,
-                            contentDescription = "Cargar JSON",
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = "Cargar Música",
                             tint = DjCyan,
                             modifier = Modifier.size(15.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "IMPORTAR JSON",
+                            text = "CARGAR MÚSICA",
                             color = DjCyan,
                             fontWeight = FontWeight.Bold,
                             fontSize = 9.5.sp
@@ -1142,8 +1144,8 @@ fun LowerLibrarySection(
 
                     if (state.librarySelectedGenre == "Local") {
                         IconButton(
-                            onClick = onScanLocalMusic,
-                            modifier = Modifier.size(34.dp)
+                            onClick = onPickAudioFiles,
+                            modifier = Modifier.size(34.dp).testTag("scan_local_music_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
@@ -1309,15 +1311,15 @@ fun LowerLibrarySection(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = onScanLocalMusic,
-                            modifier = Modifier.height(28.dp),
+                            onClick = onPickAudioFiles,
+                            modifier = Modifier.height(28.dp).testTag("grant_permission_pick_button"),
                             shape = RoundedCornerShape(4.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = DjCyan),
                             contentPadding = PaddingValues(horizontal = 10.dp)
                         ) {
                             Icon(Icons.Default.Folder, contentDescription = null, tint = Color.Black, modifier = Modifier.size(12.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("CONCEDER PERMISO Y ESCANEAR", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                            Text("CONCEDER PERMISO Y SELECCIONAR MÚSICA", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 9.sp)
                         }
                     }
                 }
@@ -1339,22 +1341,22 @@ fun LowerLibrarySection(
                             modifier = Modifier.size(24.dp)
                         )
                         Text(
-                            text = if (state.librarySelectedGenre == "Local") "No se encontraron archivos .mp3, .wav o .aac en el dispositivo"
+                            text = if (state.librarySelectedGenre == "Local") "No se encontraron archivos .mp3 o .wav cargados"
                             else "No se encontraron canciones con los filtros actuales",
                             color = DjTextMuted,
                             fontSize = 9.5.sp
                         )
                         if (state.librarySelectedGenre == "Local") {
                             Button(
-                                onClick = onScanLocalMusic,
-                                modifier = Modifier.height(26.dp),
+                                onClick = onPickAudioFiles,
+                                modifier = Modifier.height(26.dp).testTag("empty_state_load_music_button"),
                                 shape = RoundedCornerShape(4.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF262D3E)),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = DjCyan, modifier = Modifier.size(12.dp))
+                                Icon(Icons.Default.Folder, contentDescription = null, tint = DjCyan, modifier = Modifier.size(12.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("ESCANEAR ALMACENAMIENTO", color = DjCyan, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                Text("SELECCIONAR CANCIONES (.MP3 / .WAV)", color = DjCyan, fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1443,185 +1445,4 @@ fun LowerLibrarySection(
             }
         }
     }
-
-    if (showImportDialog) {
-        ImportSongsJsonDialog(
-            onDismiss = { showImportDialog = false },
-            onConfirmImport = { jsonStr ->
-                val res = onImportSongsJson(jsonStr)
-                res.onSuccess { count ->
-                    importStatusMessage = "✓ Se cargaron dinámicamente $count canciones a la biblioteca."
-                }
-                res
-            }
-        )
-    }
-}
-
-@Composable
-fun ImportSongsJsonDialog(
-    onDismiss: () -> Unit,
-    onConfirmImport: (String) -> Result<Int>
-) {
-    var jsonText by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var parsedPreviewCount by remember { mutableStateOf<Int?>(null) }
-
-    // Live validation whenever user changes input
-    LaunchedEffect(jsonText) {
-        if (jsonText.isBlank()) {
-            errorMessage = null
-            parsedPreviewCount = null
-        } else {
-            try {
-                val parsed = SongJsonParser.parse(jsonText)
-                parsedPreviewCount = parsed.size
-                errorMessage = null
-            } catch (e: Exception) {
-                parsedPreviewCount = null
-                errorMessage = e.message
-            }
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.DataObject,
-                    contentDescription = null,
-                    tint = DjCyan,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "IMPORTAR CANCIONES VÍA JSON",
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
-                )
-            }
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Ingresa una estructura JSON simplificada (lista de pistas con título, artista, género y duración) para cargarlas dinámicamente en la consola.",
-                    fontSize = 10.sp,
-                    color = DjTextMuted,
-                    lineHeight = 14.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Estructura JSON:",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = DjCyan
-                    )
-                    TextButton(
-                        onClick = { jsonText = SongJsonParser.SAMPLE_JSON },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentPaste,
-                            contentDescription = null,
-                            tint = DjGreen,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Pegar Ejemplo",
-                            color = DjGreen,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                OutlinedTextField(
-                    value = jsonText,
-                    onValueChange = { jsonText = it },
-                    placeholder = {
-                        Text(
-                            "[ {\"titulo\": \"Mi Canción\", \"artista\": \"DJ\", \"genero\": \"Cumbia\", \"duracionSeg\": 180} ]",
-                            fontSize = 9.sp,
-                            color = DjTextMuted
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(130.dp)
-                        .testTag("json_input_field"),
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 9.5.sp,
-                        color = Color.White
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = DjCyan,
-                        unfocusedBorderColor = DjBorder,
-                        focusedContainerColor = Color(0xFF10131B),
-                        unfocusedContainerColor = Color(0xFF10131B)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                if (parsedPreviewCount != null) {
-                    Text(
-                        text = "✓ Estructura válida: $parsedPreviewCount canción(es) lista(s) para cargar.",
-                        color = DjGreen,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                } else if (errorMessage != null && jsonText.isNotBlank()) {
-                    Text(
-                        text = "⚠ Error: $errorMessage",
-                        color = DjRed,
-                        fontSize = 9.sp,
-                        maxLines = 2
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val result = onConfirmImport(jsonText)
-                    result.onSuccess {
-                        onDismiss()
-                    }.onFailure { err ->
-                        errorMessage = err.message ?: "Error al importar JSON"
-                    }
-                },
-                enabled = jsonText.isNotBlank() && errorMessage == null,
-                colors = ButtonDefaults.buttonColors(containerColor = DjCyan),
-                modifier = Modifier.testTag("import_json_confirm_button")
-            ) {
-                Text(
-                    text = "CARGAR A BIBLIOTECA",
-                    color = Color.Black,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 10.sp
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("CANCELAR", color = DjTextMuted, fontSize = 10.sp)
-            }
-        },
-        containerColor = DjPanelDark,
-        shape = RoundedCornerShape(12.dp)
-    )
 }

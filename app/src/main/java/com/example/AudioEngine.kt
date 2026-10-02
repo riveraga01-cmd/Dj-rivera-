@@ -231,40 +231,105 @@ class EmotionalTtsManager(
         }
     }
 
-    fun applyVoicePreset(selectedVoiceName: String): Voice? {
-        val currentTts = tts ?: return null
+    private fun isVoiceMale(voice: Voice): Boolean {
+        val name = voice.name.lowercase()
+        val features = voice.features?.map { it.lowercase() } ?: emptyList()
+        if (features.any { it.contains("female") || it == "gender=female" }) return false
+        if (features.any { it.contains("male") || it == "gender=male" }) return true
+        if (name.contains("female") || name.contains("mujer") || name.contains("dama")) return false
+        if (name.contains("male") || name.contains("hombre") || name.contains("varon") || name.contains("varón") || name.contains("masculin")) return true
+        if (Regex("(?:^|[^a-z])(male|hombre|varon|varón)(?:[^a-z]|$)").containsMatchIn(name)) return true
+        // Known male voice code markers in Android TTS (e.g., Google TTS es-es-x-eed, es-es-x-cas, es-us-x-esc, es-us-x-esd)
+        if (name.contains("-cas-") || name.contains("-eed-") || name.contains("-esc-") || name.contains("-esd-")) return true
+        return false
+    }
+
+    private fun isVoiceFemale(voice: Voice): Boolean {
+        val name = voice.name.lowercase()
+        val features = voice.features?.map { it.lowercase() } ?: emptyList()
+        if (features.any { it.contains("female") || it == "gender=female" }) return true
+        if (name.contains("female") || name.contains("mujer") || name.contains("fem") || name.contains("femenin") || name.contains("dama") || name.contains("girl")) return true
+        if (Regex("(?:^|[^a-z])(female|mujer|femenino|femenina)(?:[^a-z]|$)").containsMatchIn(name)) return true
+        // Known female voice code markers in Android TTS (e.g., Google TTS es-es-x-ana, es-es-x-eea, es-us-x-sfb, es-us-x-efa)
+        if (name.contains("-ana-") || name.contains("-eea-") || name.contains("-sfb-") || name.contains("-efa-")) return true
+        return false
+    }
+
+    data class VoiceResult(
+        val voice: Voice?,
+        val isRealMaleVoice: Boolean
+    )
+
+    fun applyVoicePreset(selectedVoiceName: String): VoiceResult {
+        val currentTts = tts ?: return VoiceResult(null, false)
         val preset = getPresetConfig(selectedVoiceName)
-        var matchedVoice: Voice? = null
+        val wantsMale = !preset.isFemale // 'Locutor Profesional', 'DJ Nightclub', 'Deep Bass' are male
+
+        var chosenVoice: Voice? = null
+        var isRealMaleAssigned = false
 
         try {
-            val voices = currentTts.voices
-            if (voices != null && voices.isNotEmpty()) {
-                val spanishVoices = voices.filter { v ->
+            val allVoices = currentTts.voices
+            if (allVoices != null && allVoices.isNotEmpty()) {
+                val installedVoices = allVoices.filter { v ->
                     val notInstalled = v.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) == true
-                    !notInstalled && v.locale.language.equals("es", ignoreCase = true)
+                    !notInstalled
                 }
 
-                if (spanishVoices.isNotEmpty()) {
-                    matchedVoice = spanishVoices.find { v ->
-                        val name = v.name.lowercase()
-                        val country = v.locale.country.lowercase()
-                        val matchesKeyword = preset.keywords.any { k -> name.contains(k) }
-                        val matchesCountry = preset.targetCountry != null && country.equals(preset.targetCountry, ignoreCase = true)
-                        matchesKeyword || matchesCountry
-                    } ?: spanishVoices.firstOrNull()
+                val spanishVoices = installedVoices.filter {
+                    it.locale.language.equals("es", ignoreCase = true)
+                }
+                val candidatePool = if (spanishVoices.isNotEmpty()) spanishVoices else installedVoices
+
+                if (wantsMale) {
+                    val maleVoices = candidatePool.filter { isVoiceMale(it) }
+                    if (maleVoices.isNotEmpty()) {
+                        chosenVoice = if (preset.targetCountry != null) {
+                            maleVoices.find { it.locale.country.equals(preset.targetCountry, ignoreCase = true) }
+                                ?: maleVoices.first()
+                        } else {
+                            maleVoices.first()
+                        }
+                        isRealMaleAssigned = true
+                    } else {
+                        // Dispositivo no cuenta con voces masculinas instaladas
+                        chosenVoice = if (preset.targetCountry != null) {
+                            candidatePool.find { it.locale.country.equals(preset.targetCountry, ignoreCase = true) }
+                                ?: candidatePool.firstOrNull()
+                        } else {
+                            candidatePool.firstOrNull()
+                        }
+                        isRealMaleAssigned = false
+                    }
+                } else {
+                    // Femenino Enérgico
+                    val femaleVoices = candidatePool.filter { isVoiceFemale(it) }
+                    chosenVoice = if (femaleVoices.isNotEmpty()) {
+                        if (preset.targetCountry != null) {
+                            femaleVoices.find { it.locale.country.equals(preset.targetCountry, ignoreCase = true) }
+                                ?: femaleVoices.first()
+                        } else {
+                            femaleVoices.first()
+                        }
+                    } else {
+                        candidatePool.firstOrNull()
+                    }
+                    isRealMaleAssigned = false
                 }
             }
         } catch (e: Throwable) {
-            Log.w(tag, "Error matching system voice: ${e.message}")
+            Log.w(tag, "Error querying system voices via TextToSpeech.getVoices(): ${e.message}")
         }
 
-        if (matchedVoice != null) {
+        if (chosenVoice != null) {
             try {
-                currentTts.voice = matchedVoice
-                Log.d(tag, "Mapped preset '${preset.presetName}' to real voice: ${matchedVoice.name}")
-            } catch (_: Throwable) {}
+                currentTts.setVoice(chosenVoice)
+                Log.d(tag, "Mapped preset '${preset.presetName}' to real voice: ${chosenVoice.name} (isRealMale=$isRealMaleAssigned)")
+            } catch (e: Throwable) {
+                Log.w(tag, "Error setting tts voice: ${e.message}")
+            }
         } else {
-            // Apply language locale fallback
+            // Fallback de idioma
             try {
                 if (preset.targetCountry != null) {
                     currentTts.setLanguage(Locale("es", preset.targetCountry))
@@ -274,7 +339,7 @@ class EmotionalTtsManager(
             } catch (_: Throwable) {}
         }
 
-        return matchedVoice
+        return VoiceResult(chosenVoice, isRealMaleAssigned)
     }
 
     fun speakLocutorTts(
@@ -297,11 +362,27 @@ class EmotionalTtsManager(
         currentOnFinishCallback = onFinish
 
         val preset = getPresetConfig(selectedVoiceName)
-        applyVoicePreset(selectedVoiceName)
+        val voiceResult = applyVoicePreset(selectedVoiceName)
 
-        // Combine user slider adjustments with the preset's distinctive acoustic characteristics
+        // Asigna la voz elegida mediante tts.setVoice(selectedVoice) antes de reproducir el texto introducido
+        voiceResult.voice?.let { voice ->
+            try {
+                currentTts.setVoice(voice)
+            } catch (_: Throwable) {}
+        }
+
+        val wantsMale = !preset.isFemale
+        // Si el dispositivo no cuenta con voces masculinas instaladas, aplica un ajuste automático
+        // de Tono (Pitch) bajo (ejemplo: 0.65x) al seleccionar voces masculinas para forzar un timbre grave.
+        val basePitch = if (wantsMale && !voiceResult.isRealMaleVoice) {
+            0.65f
+        } else {
+            preset.basePitch
+        }
+
+        // Combinar slider del usuario con las características distintivas acústicas del preset
         val finalRate = (sliderRate * preset.baseRate).coerceIn(0.5f, 2.0f)
-        val finalPitch = (sliderPitch * preset.basePitch).coerceIn(0.5f, 2.0f)
+        val finalPitch = (sliderPitch * basePitch).coerceIn(0.4f, 2.0f)
 
         currentSpeechRate = finalRate
         currentPitch = finalPitch
@@ -352,26 +433,50 @@ class EmotionalTtsManager(
         val currentTts = tts ?: return
 
         isLiveUtterance = true
+        var chosenVoice: Voice? = null
+        var isRealMale = false
+
         try {
             val voices = currentTts.voices
             if (voices != null && voices.isNotEmpty()) {
-                val matchingVoice = voices.find { voice ->
-                    val name = voice.name.lowercase()
-                    val localeMatches = voice.locale.language == "es"
-                    val genderMatches = if (tipoLector.isFemale) {
-                        name.contains("female") || name.contains("fem") || name.contains("mujer")
-                    } else {
-                        name.contains("male") || name.contains("hombre")
-                    }
-                    localeMatches && genderMatches
-                } ?: voices.find { it.locale.language == "es" }
+                val installed = voices.filter { v ->
+                    v.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
+                }
+                val spanish = installed.filter { it.locale.language.equals("es", ignoreCase = true) }
+                val pool = if (spanish.isNotEmpty()) spanish else installed
 
-                matchingVoice?.let { currentTts.voice = it }
+                if (tipoLector.isFemale) {
+                    val females = pool.filter { isVoiceFemale(it) }
+                    chosenVoice = females.firstOrNull() ?: pool.firstOrNull()
+                } else {
+                    val males = pool.filter { isVoiceMale(it) }
+                    if (males.isNotEmpty()) {
+                        chosenVoice = males.first()
+                        isRealMale = true
+                    } else {
+                        chosenVoice = pool.firstOrNull()
+                        isRealMale = false
+                    }
+                }
             }
         } catch (_: Exception) {}
 
-        currentTts.setPitch(tipoLector.pitch)
-        currentTts.setSpeechRate(tipoLector.rate)
+        chosenVoice?.let { voice ->
+            try {
+                currentTts.setVoice(voice)
+            } catch (_: Throwable) {}
+        }
+
+        val effectivePitch = if (!tipoLector.isFemale && !isRealMale) {
+            0.65f
+        } else {
+            tipoLector.pitch
+        }
+
+        try {
+            currentTts.setPitch(effectivePitch)
+            currentTts.setSpeechRate(tipoLector.rate)
+        } catch (_: Throwable) {}
 
         _lastSpoken.value = text
         val utteranceId = UUID.randomUUID().toString()
